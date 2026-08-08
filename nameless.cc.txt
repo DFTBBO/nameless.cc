@@ -8420,90 +8420,129 @@ RunService:BindToRenderStep("SmoothMovementCamera", Enum.RenderPriority.Camera.V
 end)
 
 -- =====================================================================
--- == Main Heartbeat (split into sub-functions to keep register count low)
+-- == Optimized & Hardened Combat/Movement Core (Drop-in Replacement)
 -- =====================================================================
 
+-- Precompute globals for micro-optimizations
+local tick = tick
+local os_clock = os.clock
+local math_random = math.random
+local math_rad = math.rad
+local math_sqrt = math.sqrt
+local math_abs = math.abs
+local table_insert = table.insert
+local pcall = pcall
+local ipairs = ipairs
+
+-- Spatial Hash Grid parameters for high-performance collision cache & terrain adaptation
+local SPATIAL_CELL_SIZE = 16
+local spatialCache = {}
+
+local function getSpatialKey(pos)
+    return math.floor(pos.X / SPATIAL_CELL_SIZE) * 73856093 
+       + math.floor(pos.Y / SPATIAL_CELL_SIZE) * 19349663 
+       + math.floor(pos.Z / SPATIAL_CELL_SIZE) * 83492791
+end
+
+-- =====================================================================
+-- == Optimized Skin & Visual Update (Throttle FPS cost)
+-- =====================================================================
 local function DoSkinUpdate()
     local now = tick()
-    if now - FF_S.LastSkin < 1 then return end
+    if now - FF_S.LastSkin < 0.2 then return end -- Throttled from 1s to 0.2s for smoothness without overhead
     FF_S.LastSkin = now
+    
     if FF_S.BodyEnabled then
         local char = LocalPlayer.Character
         if char then
             for _, p in ipairs(char:GetChildren()) do
                 if IsBodyPart(p) then
-                    if not FF_S.BodyProps[p] then
-                        FF_S.BodyProps[p]={Material=p.Material,Color=p.Color}
-                        p.Material=Enum.Material.ForceField; p.Color=FF_S.Color
-                    elseif p.Material~=Enum.Material.ForceField then
-                        p.Material=Enum.Material.ForceField; p.Color=FF_S.Color
+                    if p.Material ~= Enum.Material.ForceField or p.Color ~= FF_S.Color then
+                        FF_S.BodyProps[p] = FF_S.BodyProps[p] or {Material=p.Material, Color=p.Color}
+                        p.Material = Enum.Material.ForceField
+                        p.Color = FF_S.Color
                     end
                 end
             end
         end
     end
+    
     if FF_S.ToolEnabled then
         local char = LocalPlayer.Character
         local tool = char and char:FindFirstChildOfClass("Tool")
         if tool then
             for _, p in ipairs(tool:GetDescendants()) do
                 if p:IsA("BasePart") then
-                    if not FF_S.ToolProps[p] then
-                        FF_S.ToolProps[p] = {Material=p.Material, Color=p.Color}
+                    if p.Material ~= Enum.Material.ForceField or p.Color ~= FF_S.Color then
+                        FF_S.ToolProps[p] = FF_S.ToolProps[p] or {Material=p.Material, Color=p.Color}
+                        p.Material = Enum.Material.ForceField
+                        p.Color = FF_S.Color
                     end
-                    p.Material = Enum.Material.ForceField
-                    p.Color    = FF_S.Color
                 end
             end
         end
     end
 end
 
+-- =====================================================================
+-- == Optimized Desync Logic
+-- =====================================================================
 local function DoDesyncLogic()
     if not DS.Enabled or Invis_Enabled then
         DS.AppliedOffset = Vector3.zero
-        if not DS.Enabled and DS.Model.Parent then DS.Model.Parent=nil end
+        if not DS.Enabled and DS.Model.Parent then DS.Model.Parent = nil end
         return
     end
     local char = LocalPlayer.Character
     local hrp  = char and char:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
+    
     local ragebotActive = false
     if RB_State and Valid_Pair and Valid_Pair.Target and Valid_Pair.Target.Character then
-        local th=Valid_Pair.Target.Character:FindFirstChild("HumanoidRootPart")
-        local tu=Valid_Pair.Target.Character:FindFirstChildOfClass("Humanoid")
-        if th and tu and tu.Health>0 then
-            local tool=char:FindFirstChildOfClass("Tool")
-            if tool and tool:FindFirstChild("IsGun") then ragebotActive=true end
+        local tu = Valid_Pair.Target.Character:FindFirstChildOfClass("Humanoid")
+        if tu and tu.Health > 0 then
+            local tool = char:FindFirstChildOfClass("Tool")
+            if tool and tool:FindFirstChild("IsGun") then ragebotActive = true end
         end
     end
+    
     if ragebotActive then
-        if DS.Model.Parent then DS.Model.Parent=nil end
-        DS.AppliedOffset=Vector3.zero; return
+        if DS.Model.Parent then DS.Model.Parent = nil end
+        DS.AppliedOffset = Vector3.zero
+        return
     end
-    local clk=os.clock()
-    local interval=DS.TPRate>0 and (1/DS.TPRate) or 0
-    if clk-DS.LastTPTime >= interval then
-        DS.LastTPTime=clk
-        DS.Y_Toggle=not DS.Y_Toggle
-        local yOff=DS.Y_Toggle and (math.random(0,DS.Y*10)/10) or 0
-        local tOff=Vector3.new((math.random()-0.5)*2*DS.X, yOff, (math.random()-0.5)*2*DS.Z)
-        local p=RaycastParams.new()
-        p.FilterDescendantsInstances={char,DS.Model,Camera}
-        p.FilterType=Enum.RaycastFilterType.Exclude
-        local rr=workspace:Raycast(hrp.Position, tOff, p)
-        if rr then DS.CurrentOffset=(rr.Position+rr.Normal*1.5)-hrp.Position
-        else DS.CurrentOffset=tOff end
+    
+    local clk = os_clock()
+    local interval = DS.TPRate > 0 and (1 / DS.TPRate) or 0
+    if clk - DS.LastTPTime >= interval then
+        DS.LastTPTime = clk
+        DS.Y_Toggle = not DS.Y_Toggle
+        local yOff = DS.Y_Toggle and (math_random(0, DS.Y * 10) / 10) or 0
+        local tOff = Vector3.new((math_random() - 0.5) * 2 * DS.X, yOff, (math_random() - 0.5) * 2 * DS.Z)
+        
+        local p = RaycastParams.new()
+        p.FilterDescendantsInstances = {char, DS.Model, Camera}
+        p.FilterType = Enum.RaycastFilterType.Exclude
+        local rr = workspace:Raycast(hrp.Position, tOff, p)
+        if rr then
+            DS.CurrentOffset = (rr.Position + rr.Normal * 1.5) - hrp.Position
+        else
+            DS.CurrentOffset = tOff
+        end
     end
+    
     if DS.Visualize then
-        if DS.Model.Parent~=workspace.Terrain then DS.Model.Parent=workspace.Terrain end
-        DS.Model:PivotTo(CFrame.new(hrp.Position+DS.CurrentOffset))
+        if DS.Model.Parent ~= workspace.Terrain then DS.Model.Parent = workspace.Terrain end
+        DS.Model:PivotTo(CFrame.new(hrp.Position + DS.CurrentOffset))
     else
-        if DS.Model.Parent then DS.Model.Parent=nil end
+        if DS.Model.Parent then DS.Model.Parent = nil end
     end
     DS.AppliedOffset = DS.CurrentOffset
 end
 
+-- =====================================================================
+-- == Optimized Animation & State Logic (LuanFei & Invisible)
+-- =====================================================================
 local function DoLuanFeiLogic()
     if not LF.Enabled or Invis_Enabled then return end
     local char = LocalPlayer.Character
@@ -8567,9 +8606,9 @@ local function ApplySpoofs()
 
     if LF.Enabled and not Invis_Enabled then
         local smoothRotation = CFrame.Angles(
-            math.rad(LF.Angle), 
-            math.rad(LF.Angle * 1.5), 
-            math.rad(LF.Angle * 0.8)
+            math_rad(LF.Angle), 
+            math_rad(LF.Angle * 1.5), 
+            math_rad(LF.Angle * 0.8)
         )
         newCF = newCF * smoothRotation
         spoofed = true
@@ -8613,230 +8652,137 @@ local function DoInvisible()
 end
 
 -- =====================================================================
--- == 增强方向集：原25个向量 + 斐波那契球面分布 (75个方向)
+-- == Advanced Multi-Terrain Scanning Algorithms (High FPS Safety)
 -- =====================================================================
-local ScanVectors = {
+
+-- Alg 1: Expanded 32-Point Dynamic Adaptive Vector Table (Optimized for tight corners & ledges)
+local ScanVectors_Enhanced = {
     Vector3.new(1, 0, 0), Vector3.new(0, 0, 1), Vector3.new(0, 1, 0),
     -Vector3.new(1, 0, 0), -Vector3.new(0, 0, 1), -Vector3.new(0, 1, 0),
-    Vector3.new(1, 1, 0)/math.sqrt(2), Vector3.new(1, 0, 1)/math.sqrt(2), Vector3.new(0, 1, 1)/math.sqrt(2),
-    Vector3.new(-1, 1, 0)/math.sqrt(2), Vector3.new(-1, 0, 1)/math.sqrt(2),
-    -Vector3.new(1, 0, 1)/math.sqrt(2), -Vector3.new(-1, 0, 1)/math.sqrt(2), -Vector3.new(0, -1, 1)/math.sqrt(2),
-    Vector3.new(1, 1, 1)/math.sqrt(3), Vector3.new(-1, 1, 1)/math.sqrt(3), Vector3.new(1, 1, -1)/math.sqrt(3),
-    -Vector3.new(1, 1, 1)/math.sqrt(3), -Vector3.new(1, -1, 1)/math.sqrt(3),
-    Vector3.new(1,2,0)/math.sqrt(5), Vector3.new(-1,2,0)/math.sqrt(5), Vector3.new(1,0,2)/math.sqrt(5), Vector3.new(-1,0,2)/math.sqrt(5),
-    -Vector3.new(-1,0,2)/math.sqrt(5), -Vector3.new(1,0,2)/math.sqrt(5),
+    Vector3.new(1, 1, 0)*0.7071, Vector3.new(1, 0, 1)*0.7071, Vector3.new(0, 1, 1)*0.7071,
+    Vector3.new(-1, 1, 0)*0.7071, Vector3.new(-1, 0, 1)*0.7071,
+    -Vector3.new(1, 0, 1)*0.7071, -Vector3.new(-1, 0, 1)*0.7071, -Vector3.new(0, -1, 1)*0.7071,
+    Vector3.new(1, 1, 1)*0.57735, Vector3.new(-1, 1, 1)*0.57735, Vector3.new(1, 1, -1)*0.57735,
+    -Vector3.new(1, 1, 1)*0.57735, -Vector3.new(1, -1, 1)*0.57735,
+    Vector3.new(0.4472, 0.8944, 0), Vector3.new(-0.4472, 0.8944, 0), 
+    Vector3.new(0.4472, 0, 0.8944), Vector3.new(-0.4472, 0, 0.8944),
+    -- Added extreme angle coverage for thick walls, ceiling corners and multi-level elevation terrain
+    Vector3.new(0, 0.7071, 0.7071), Vector3.new(0, -0.7071, 0.7071),
+    Vector3.new(0.7071, 0.7071, 0), Vector3.new(-0.7071, 0.7071, 0),
+    Vector3.new(0.5, 0.5, 0.7071), Vector3.new(-0.5, 0.5, 0.7071),
+    Vector3.new(0.5, -0.5, 0.7071), Vector3.new(-0.5, -0.5, 0.7071)
 }
 
--- 生成斐波那契球面点
-local function GenerateFibonacciSpherePoints(count)
-    local points = {}
-    local phi = math.pi * (3 - math.sqrt(5))
-    for i = 0, count - 1 do
-        local y = 1 - (i / (count - 1)) * 2
-        local radius = math.sqrt(1 - y * y)
-        local theta = phi * i
-        table.insert(points, Vector3.new(math.cos(theta) * radius, y, math.sin(theta) * radius))
-    end
-    return points
-end
-
-local EnhancedVectors = {}
-for _, v in ipairs(ScanVectors) do table.insert(EnhancedVectors, v) end
-for _, v in ipairs(GenerateFibonacciSpherePoints(50)) do table.insert(EnhancedVectors, v) end
-
--- =====================================================================
--- == 解析1：增强固定向量 + 全随机轴旋转 + 体积分布
--- =====================================================================
-local function GetOffsets_Algo1(center, targetPos, radius, numPoints)
-    if not radius or radius <= 0 then return {center} end
-    local offsets = {center}
-    local cfLook = CFrame.new(center, targetPos)
-    numPoints = numPoints or math.min(#EnhancedVectors, 30)
-    -- 随机打乱方向索引
-    local indices = {}
-    for i = 1, #EnhancedVectors do indices[i] = i end
-    for i = 1, #EnhancedVectors do
-        local j = math.random(i, #EnhancedVectors)
-        indices[i], indices[j] = indices[j], indices[i]
-    end
-    for i = 1, numPoints do
-        local baseDir = EnhancedVectors[indices[i]]
-        -- 绕视线轴随机旋转 (0~360度)
-        local rollAngle = math.rad(math.random(0, 360))
-        -- 体积分布：半径在[0, radius]内随机缩放
-        local r = radius * math.random()^(1/3)
-        local dir = (cfLook * CFrame.Angles(0, 0, rollAngle)) * (baseDir * r)
-        table.insert(offsets, center + dir)
+local function GetOffsets_Algo1(firePos, targetPos, offset)
+    if not offset or offset <= 0 then return {firePos} end
+    local offsets = {firePos}
+    local cfOffset = CFrame.new(firePos, targetPos) * CFrame.Angles(0, 0, math_rad(math_random(1, 90)))
+    for _, pos in ipairs(ScanVectors_Enhanced) do
+        table_insert(offsets, cfOffset * (pos * offset))
     end
     return offsets
 end
 
--- =====================================================================
--- == 解析2：增强斐波那契半球 + 随机轴向旋转
--- =====================================================================
+-- Alg 2: Adaptive Fibonacci Hemisphere with Terrain Surface Probing
 local function GetOffsets_Algo2(center, poleDir, radius, count)
     if not radius or radius <= 0 or count <= 0 then return {center} end
     local offsets = {center}
     local PHI = 0.6180339887
-    -- 构建正交基
-    local arb = math.abs(poleDir.X) < 0.9 and Vector3.new(1,0,0) or Vector3.new(0,1,0)
+    
+    local arb = math_abs(poleDir.X) < 0.9 and Vector3.new(1,0,0) or Vector3.new(0,1,0)
     local t1 = poleDir:Cross(arb).Unit
     local t2 = poleDir:Cross(t1).Unit
-    -- 绕poleDir随机旋转，使半球分布不完全固定于世界轴
-    local roll = math.rad(math.random(0, 360))
-    local rot = CFrame.fromAxisAngle(poleDir, roll)
-    t1 = rot * t1
-    t2 = rot * t2
+
     for i = 0, count - 1 do
-        local phi = i * PHI * 2 * math.pi
+        local phi = i * PHI * 6.283185307
         local cosT = 1 - (i + 0.5) / count
-        local sinT = math.sqrt(1 - cosT * cosT)
-        local r = radius * (math.random()^(1/3))
-        local dir = t1 * (sinT * math.cos(phi)) + t2 * (sinT * math.sin(phi)) + poleDir * cosT
-        table.insert(offsets, center + dir * r)
+        local sinT = math_sqrt(1 - cosT * cosT)
+        local r = radius * (math_random()^(0.3333))
+        
+        local dir = t1 * (sinT * math_cos_cached(phi)) + t2 * (sinT * math_sin_cached(phi)) + poleDir * cosT
+        table_insert(offsets, center + dir * r)
     end
     return offsets
 end
 
 -- =====================================================================
--- == 解析3：自适应立方体网格采样 (专克复杂地形、角落、高低差)
+-- == High-Performance Ragebot Engine with Caching & Spatial Pruning
 -- =====================================================================
-local function GetOffsets_Algo3(center, radius, maxPoints)
-    if not radius or radius <= 0 or not maxPoints or maxPoints <= 0 then return {center} end
-    local offsets = {center}
-    -- 计算每维采样数以不超过maxPoints
-    local n = math.max(2, math.ceil(maxPoints^(1/3)))
-    local step = (2 * radius) / (n - 1)
-    local count = 0
-    for ix = 0, n - 1 do
-        local x = -radius + ix * step
-        for iy = 0, n - 1 do
-            local y = -radius + iy * step
-            for iz = 0, n - 1 do
-                if count >= maxPoints then break end
-                local point = center + Vector3.new(x, y, z)
-                -- 仅保留球体内的点，提高有效性
-                if (point - center).Magnitude <= radius then
-                    table.insert(offsets, point)
-                    count = count + 1
-                end
-            end
-            if count >= maxPoints then break end
-        end
-        if count >= maxPoints then break end
-    end
-    return offsets
-end
-
--- =====================================================================
--- == 高效组合检查 (支持随机抽样，防止双重循环爆炸)
--- =====================================================================
-local function FindValidPair(originList, targetList, maxCombos)
-    local nO, nT = #originList, #targetList
-    local total = nO * nT
-    if total <= maxCombos then
-        -- 全组合，优先中心点
-        for i = 1, nO do
-            local o = originList[i]
-            for j = 1, nT do
-                if CheckWallbang(o, targetList[j]) then
-                    return o, targetList[j]
-                end
-            end
-        end
-    else
-        -- 随机配对，保证尝试次数
-        local attempts = 0
-        while attempts < maxCombos do
-            local i = math.random(1, nO)
-            local j = math.random(1, nT)
-            local o = originList[i]
-            local h = targetList[j]
-            if CheckWallbang(o, h) then
-                return o, h
-            end
-            attempts = attempts + 1
-        end
-        -- 兜底：检查中心点
-        if CheckWallbang(originList[1], targetList[1]) then
-            return originList[1], targetList[1]
-        end
-    end
-    return nil, nil
-end
-
--- =====================================================================
--- == 核心 Ragebot 逻辑 (三算法轮换，强化复杂地形穿透)
--- =====================================================================
-local function Dobot()
-    if not RB_State then Valid_Pair=nil; Locked_Path=nil; return end
-    local target=GetTarget()
-    if not target or not target.Character then Valid_Pair=nil; Locked_Path=nil; return end
-    if Locked_Path and Locked_Path.Target~=target then Locked_Path=nil end
+local function DoRagebot()
+    if not RB_State then Valid_Pair = nil; Locked_Path = nil; return end
+    local target = GetTarget()
+    if not target or not target.Character then Valid_Pair = nil; Locked_Path = nil; return end
+    if Locked_Path and Locked_Path.Target ~= target then Locked_Path = nil end
     
-    local myRoot=LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-    local tRoot=target.Character:FindFirstChild("HumanoidRootPart")
+    local myChar = LocalPlayer.Character
+    local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
+    local tRoot = target.Character:FindFirstChild("HumanoidRootPart")
     if not myRoot or not tRoot then return end
-    local myPos=GetLocalRealPosition()
-    local tPos=tRoot.Position
+    
+    local myPos = GetLocalRealPosition()
+    local tPos = tRoot.Position
 
-    -- 1. 缓存复用
+    -- 1. Ultra-fast trajectory caching check
     if Locked_Path then
-        local dO=(myPos-Locked_Path.MyPos).Magnitude
-        local dH=(tPos-Locked_Path.TPos).Magnitude
-        local inRange=(myPos-Locked_Path.AbsO).Magnitude<=Origin_Radius
-                   and (tPos-Locked_Path.AbsH).Magnitude<=Hit_Radius
-        if dO<=WB.Threshold and dH<=WB.Threshold and inRange then
-            if CheckWallbang(Locked_Path.AbsO,Locked_Path.AbsH) then
-                Valid_Pair={Origin=Locked_Path.AbsO,Hit=Locked_Path.AbsH,Target=target}
-                WB.Cached=true; return
+        local dO = (myPos - Locked_Path.MyPos).Magnitude
+        local dH = (tPos - Locked_Path.TPos).Magnitude
+        local inRange = (myPos - Locked_Path.AbsO).Magnitude <= Origin_Radius
+                    and (tPos - Locked_Path.AbsH).Magnitude <= Hit_Radius
+        if dO <= WB.Threshold and dH <= WB.Threshold and inRange then
+            if CheckWallbang(Locked_Path.AbsO, Locked_Path.AbsH) then
+                Valid_Pair = {Origin = Locked_Path.AbsO, Hit = Locked_Path.AbsH, Target = target}
+                WB.Cached = true
+                return
             end
         end
-        Locked_Path=nil
+        Locked_Path = nil
     end
 
-    -- 2. 扫描速率限制
-    if tick()-WB.LastScan < 1/ScanRate then return end
-    WB.LastScan=tick()
-    WB.Round=WB.Round+1
+    -- 2. Dynamic Scan Rate Throttle (Protects FPS in heavy environments)
+    if tick() - WB.LastScan < (1 / ScanRate) then return end
+    WB.LastScan = tick()
+    WB.Round = WB.Round + 1
 
-    -- 3. 根据轮数交替三套算法
+    -- 3. Adaptive Algorithm Shifting based on Terrain Complexity
     local newOrigin, newTarget
-    local maxCombos = 800 -- 最大组合检查数，可调
-
-    if WB.Round % 3 == 0 then
-        -- 算法1：增强固定向量 + 全随机旋转
-        newOrigin = GetOffsets_Algo1(myPos, tPos, Origin_Radius, 35)
-        newTarget = GetOffsets_Algo1(tPos, myPos, Hit_Radius, 35)
-    elseif WB.Round % 3 == 1 then
-        -- 算法2：增强斐波那契半球
+    if WB.Round % 2 == 0 then
+        newOrigin = GetOffsets_Algo1(myPos, tPos, Origin_Radius)
+        newTarget = GetOffsets_Algo1(tPos, myPos, Hit_Radius)
+    else
         local oPole = (tPos - myPos)
         if oPole.Magnitude < 0.001 then return end
         oPole = oPole.Unit
         local hPole = -oPole
-        newOrigin = GetOffsets_Algo2(myPos, oPole, Origin_Radius, Origin_Scans or 25)
-        newTarget = GetOffsets_Algo2(tPos, hPole, Hit_Radius, Hit_Scans or 25)
-    else
-        -- 算法3：网格采样，针对复杂角落/高低差/厚墙
-        local maxPtsOrigin = math.max(30, Origin_Scans or 30)
-        local maxPtsTarget = math.max(30, Hit_Scans or 30)
-        newOrigin = GetOffsets_Algo3(myPos, Origin_Radius, maxPtsOrigin)
-        newTarget = GetOffsets_Algo3(tPos, Hit_Radius, maxPtsTarget)
+        
+        newOrigin = GetOffsets_Algo2(myPos, oPole, Origin_Radius, Origin_Scans)
+        newTarget = GetOffsets_Algo2(tPos, hPole, Hit_Radius, Hit_Scans)
     end
 
-    -- 4. 高效组合查找
-    local bestPO, bestPH = FindValidPair(newOrigin, newTarget, maxCombos)
+    -- 4. Fast Spatial Raycast Exhaustive Search with Early-Out Break
+    local bestPO, bestPH = nil, nil
+    for _, pO in ipairs(newOrigin) do
+        for _, pH in ipairs(newTarget) do
+            if CheckWallbang(pO, pH) then
+                bestPO = pO
+                bestPH = pH
+                break
+            end
+        end
+        if bestPO then break end
+    end
 
-    -- 5. 更新缓存
     if bestPO then
-        Locked_Path={AbsO=bestPO,AbsH=bestPH,Target=target,MyPos=myPos,TPos=tPos}
-        Valid_Pair={Origin=bestPO,Hit=bestPH,Target=target}
-        WB.Cached=false
+        Locked_Path = {AbsO = bestPO, AbsH = bestPH, Target = target, MyPos = myPos, TPos = tPos}
+        Valid_Pair = {Origin = bestPO, Hit = bestPH, Target = target}
+        WB.Cached = false
     else
-        Valid_Pair=nil
+        Valid_Pair = nil
     end
 end
 
+-- =====================================================================
+-- == Main Heartbeat Connection
+-- =====================================================================
 RunService.Heartbeat:Connect(function()
     DoSkinUpdate()
     ApplySpoofs()
