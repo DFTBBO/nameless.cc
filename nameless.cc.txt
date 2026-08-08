@@ -7780,14 +7780,48 @@ do
     end
 end
 
--- Random part cycler
+-- Random part cycler (Legit Humanized Version)
 RunService.Heartbeat:Connect(function(dt)
     if not SA.Enabled or not SA.IsRandom then return end
+
+    -- 1. 引入随机时间间隔，打破死板的固定 0.081 秒
+    -- 基础间隔 0.08 秒，附加 ±0.03 秒的随机波动，模拟人类反应的不确定性
+    if not SA._nextRandomInterval then
+        SA._nextRandomInterval = math.random(50, 110) / 1000 
+    end
+
     SA.RandomTimer = SA.RandomTimer + dt
-    if SA.RandomTimer >= 0.081 then
+    if SA.RandomTimer >= SA._nextRandomInterval then
         SA.RandomTimer = 0
-        SA.RandomIdx = (SA.RandomIdx % #SA.RandomParts) + 1
-        SA.TargetPart = SA.RandomParts[SA.RandomIdx]
+        SA._nextRandomInterval = math.random(50, 110) / 1000 -- 重新生成下一个随机切换间隔
+
+        -- 2. 确保全身部件（头、胸、左右手、左右腿）都能被覆盖
+        -- 并且不使用死板的顺序循环，采用“带权重的智能跳跃”或“伪随机步进”
+        if SA.RandomParts and #SA.RandomParts > 0 then
+            -- 避免连续选中同一个部位，产生过于生硬的抖动
+            local oldIdx = SA.RandomIdx or 1
+            local newIdx = oldIdx
+            
+            if #SA.RandomParts > 1 then
+                while newIdx == oldIdx do
+                    -- 引入合法玩家偏好：更高概率锁定核心区域（胸/头），但也会扫到四肢
+                    -- 通过加权随机或非线性步进来实现
+                    local roll = math.random(1, 100)
+                    if roll <= 40 then
+                        -- 40% 概率倾向于胸部或头部（假设前两个是头/胸）
+                        newIdx = math.random(1, math.min(2, #SA.RandomParts))
+                    else
+                        -- 60% 概率分配到四肢（左右手、左右腿）
+                        newIdx = math.random(1, #SA.RandomParts)
+                    end
+                end
+            else
+                newIdx = 1
+            end
+
+            SA.RandomIdx = newIdx
+            SA.TargetPart = SA.RandomParts[SA.RandomIdx]
+        end
     end
 end)
 
@@ -7834,7 +7868,7 @@ do
                 line.Visible      = true
                 line.From         = verts[i]
                 line.To           = verts[i+1] or verts[1]
-                line.Thickness    = 1.5
+                line.Thickness    = 1
                 line.Color        = SA.FOV_Color
                 line.Transparency = 1
             end
