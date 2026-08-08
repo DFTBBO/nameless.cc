@@ -4641,74 +4641,194 @@ end)
 
     -- Library components
     Library.Watermark = function(self, Name)
-        local Watermark = { }
+    local Watermark = { }
 
-        local Items = { } do 
-            Items["Watermark"] = Instances:Create("Frame", {
-                Parent = Library.Holder.Instance,
-                Name = "\0",
-                AnchorPoint = Vector2New(0.5, 1),
-                Position = UDim2New(0.5, 0, 1, -12),
-                BorderColor3 = FromRGB(12, 12, 12),
-                BorderSizePixel = 2,
-                AutomaticSize = Enum.AutomaticSize.XY,
-                BackgroundColor3 = FromRGB(14, 17, 15)
-            })  Items["Watermark"]:AddToTheme({BackgroundColor3 = "Background", BorderColor3 = "Border"})
+    local Items = { } do
+        Items["Watermark"] = Instances:Create("Frame", {
+            Parent = Library.Holder.Instance,
+            Name = "\0",
+            AnchorPoint = Vector2New(0.5, 1),
+            Position = UDim2New(0.5, 0, 1, -12),
+            BorderColor3 = FromRGB(12, 12, 12),
+            BorderSizePixel = 2,
+            AutomaticSize = Enum.AutomaticSize.XY,
+            BackgroundColor3 = FromRGB(14, 17, 15)
+        })
 
-            Items["Watermark"]:MakeDraggable()
+        Items["Watermark"]:AddToTheme({
+            BackgroundColor3 = "Background",
+            BorderColor3 = "Border"
+        })
 
-            Instances:Create("UIStroke", {
-                Parent = Items["Watermark"].Instance,
-                Name = "\0",
-                Color = FromRGB(42, 49, 45),
-                LineJoinMode = Enum.LineJoinMode.Miter,
-                ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-            }):AddToTheme({Color = "Outline"})
+        Items["Watermark"]:MakeDraggable()
 
-            Instances:Create("UIPadding", {
-                Parent = Items["Watermark"].Instance,
-                Name = "\0",
-                PaddingTop = UDimNew(0, 5),
-                PaddingBottom = UDimNew(0, 7),
-                PaddingRight = UDimNew(0, 5),
-                PaddingLeft = UDimNew(0, 5)
-            })
+        Instances:Create("UIStroke", {
+            Parent = Items["Watermark"].Instance,
+            Name = "\0",
+            Color = FromRGB(42, 49, 45),
+            LineJoinMode = Enum.LineJoinMode.Miter,
+            ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+        }):AddToTheme({
+            Color = "Outline"
+        })
 
-            Items["Text"] = Instances:Create("TextLabel", {
-                Parent = Items["Watermark"].Instance,
-                Name = "\0",
-                FontFace = Library.Font,
-                TextColor3 = FromRGB(235, 235, 235),
-                BorderColor3 = FromRGB(0, 0, 0),
-                Text = Name,
-                Position = UDim2New(0, 0, 0, 2),
-                BackgroundTransparency = 1,
-                TextXAlignment = Enum.TextXAlignment.Left,
-                BorderSizePixel = 0,
-                AutomaticSize = Enum.AutomaticSize.XY,
-                TextSize = 9,
-                BackgroundColor3 = FromRGB(255, 255, 255)
-            })  Items["Text"]:AddToTheme({TextColor3 = "Text"})
+        Instances:Create("UIPadding", {
+            Parent = Items["Watermark"].Instance,
+            Name = "\0",
+            PaddingTop = UDimNew(0, 5),
+            PaddingBottom = UDimNew(0, 7),
+            PaddingRight = UDimNew(0, 5),
+            PaddingLeft = UDimNew(0, 5)
+        })
 
-            Items["Text"]:TextBorder()
+        Items["Text"] = Instances:Create("TextLabel", {
+            Parent = Items["Watermark"].Instance,
+            Name = "\0",
+            FontFace = Library.Font,
+            TextColor3 = FromRGB(235, 235, 235),
+            BorderColor3 = FromRGB(0, 0, 0),
+            Text = Name,
+            Position = UDim2New(0, 0, 0, 2),
+            BackgroundTransparency = 1,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            BorderSizePixel = 0,
+            AutomaticSize = Enum.AutomaticSize.XY,
+            TextSize = 9,
+            BackgroundColor3 = FromRGB(255, 255, 255)
+        })
 
-            Items["Liner"] = Instances:Create("Frame", {
-                Parent = Items["Watermark"].Instance,
-                Name = "\0",
-                Position = UDim2New(0, -5, 0, -5),
-                BorderColor3 = FromRGB(0, 0, 0),
-                Size = UDim2New(1, 10, 0, 1),
-                BorderSizePixel = 0,
-                BackgroundColor3 = FromRGB(202, 243, 255)
-            })  Items["Liner"]:AddToTheme({BackgroundColor3 = "Accent"})
-        end
+        Items["Text"]:AddToTheme({
+            TextColor3 = "Text"
+        })
 
-        function Watermark:SetVisibility(Bool)
-            Items["Watermark"].Instance.Visible = Bool
-        end
+        Items["Text"]:TextBorder()
 
-        return Watermark
+        Items["Liner"] = Instances:Create("Frame", {
+            Parent = Items["Watermark"].Instance,
+            Name = "\0",
+            Position = UDim2New(0, -5, 0, -5),
+            BorderColor3 = FromRGB(0, 0, 0),
+            Size = UDim2New(1, 10, 0, 1),
+            BorderSizePixel = 0,
+            BackgroundColor3 = FromRGB(202, 243, 255)
+        })
+
+        Items["Liner"]:AddToTheme({
+            BackgroundColor3 = "Accent"
+        })
+
+        ----------------------------------------------------------------
+        -- Dynamic flowing white shine
+        -- 只使用现有 Liner，不增加 Watermark 的实际尺寸
+        ----------------------------------------------------------------
+
+        local ShineGradient = Instance.new("UIGradient")
+        ShineGradient.Name = "\0"
+        ShineGradient.Rotation = 0
+        ShineGradient.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0.00, Color3.fromRGB(255, 255, 255)),
+            ColorSequenceKeypoint.new(0.42, Color3.fromRGB(255, 255, 255)),
+            ColorSequenceKeypoint.new(0.50, Color3.fromRGB(255, 255, 255)),
+            ColorSequenceKeypoint.new(0.58, Color3.fromRGB(255, 255, 255)),
+            ColorSequenceKeypoint.new(1.00, Color3.fromRGB(255, 255, 255))
+        })
+
+        -- 透明 → 白色高光 → 透明
+        ShineGradient.Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0.00, 1),
+            NumberSequenceKeypoint.new(0.38, 1),
+            NumberSequenceKeypoint.new(0.46, 0.55),
+            NumberSequenceKeypoint.new(0.50, 0.00),
+            NumberSequenceKeypoint.new(0.54, 0.55),
+            NumberSequenceKeypoint.new(0.62, 1),
+            NumberSequenceKeypoint.new(1.00, 1)
+        })
+
+        ShineGradient.Parent = Items["Liner"].Instance
+
+        ----------------------------------------------------------------
+        -- 第二层非常淡的扫光
+        -- 不改变任何尺寸，只改变现有 Text 的渲染效果
+        ----------------------------------------------------------------
+
+        local TextShine = Instance.new("UIGradient")
+        TextShine.Name = "\0"
+        TextShine.Rotation = 0
+
+        TextShine.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0.00, Color3.fromRGB(235, 235, 235)),
+            ColorSequenceKeypoint.new(0.45, Color3.fromRGB(235, 235, 235)),
+            ColorSequenceKeypoint.new(0.50, Color3.fromRGB(255, 255, 255)),
+            ColorSequenceKeypoint.new(0.55, Color3.fromRGB(235, 235, 235)),
+            ColorSequenceKeypoint.new(1.00, Color3.fromRGB(235, 235, 235))
+        })
+
+        TextShine.Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0.00, 0),
+            NumberSequenceKeypoint.new(0.43, 0),
+            NumberSequenceKeypoint.new(0.48, 0.12),
+            NumberSequenceKeypoint.new(0.50, 0.00),
+            NumberSequenceKeypoint.new(0.52, 0.12),
+            NumberSequenceKeypoint.new(0.57, 0),
+            NumberSequenceKeypoint.new(1.00, 0)
+        })
+
+        TextShine.Parent = Items["Text"].Instance
+
+        ----------------------------------------------------------------
+        -- Flow animation
+        -- 使用 TweenService，不创建 Heartbeat 循环
+        ----------------------------------------------------------------
+
+        local TweenService = game:GetService("TweenService")
+
+        local ShineTweenInfo = TweenInfo.new(
+            2.15,
+            Enum.EasingStyle.Linear,
+            Enum.EasingDirection.InOut,
+            -1,
+            false,
+            0
+        )
+
+        -- 从左侧扫到右侧
+        ShineGradient.Offset = Vector2New(-1.15, 0)
+
+        TweenService:Create(
+            ShineGradient,
+            ShineTweenInfo,
+            {
+                Offset = Vector2New(1.15, 0)
+            }
+        ):Play()
+
+        -- 文字扫光比上方亮线稍微错开
+        TextShine.Offset = Vector2New(-1.35, 0)
+
+        local TextTweenInfo = TweenInfo.new(
+            2.35,
+            Enum.EasingStyle.Linear,
+            Enum.EasingDirection.InOut,
+            -1,
+            false,
+            0.18
+        )
+
+        TweenService:Create(
+            TextShine,
+            TextTweenInfo,
+            {
+                Offset = Vector2New(1.35, 0)
+            }
+        ):Play()
     end
+
+    function Watermark:SetVisibility(Bool)
+        Items["Watermark"].Instance.Visible = Bool
+    end
+
+    return Watermark
+end
 
     Library.KeybindList = function(self)
         local KeybindList = { }
@@ -5353,27 +5473,6 @@ end)
                 ZIndex = 9999,
                 BackgroundColor3 = FromRGB(255, 255, 255)
             })
-
-            Items["MouseImage"] = Instances:Create("ImageLabel", {
-                Parent = Items["MouseBackground"].Instance,
-                Name = "\0",
-                BorderColor3 = FromRGB(0, 0, 0),
-                Image = "rbxassetid://76631660114196",
-                BackgroundTransparency = 1,
-                Size = UDim2New(1, 0, 1, 0),
-                BorderSizePixel = 0,
-                ZIndex = 9999,
-                BackgroundColor3 = FromRGB(255, 255, 255)
-            })  Items["MouseImage"]:AddToTheme({ImageColor3 = "Accent"})
-
-            Instances:Create("UIGradient", {
-                Parent = Items["MouseImage"].Instance,
-                Name = "\0",
-                Rotation = 90,
-                Color = RGBSequence{RGBSequenceKeypoint(0, FromRGB(255, 255, 255)), RGBSequenceKeypoint(1, FromRGB(99, 108, 117))}
-            })
-
-            UserInputService.MouseIconEnabled = false
 
             Window.Items = Items
         end
@@ -6752,11 +6851,11 @@ local function CreateTracer(origin, dir)
     beam.TextureLength = 12
     beam.TextureMode = Enum.TextureMode.Wrap
     beam.TextureSpeed = 1.7
-    beam.Width0 = 1.5
-    beam.Width1 = 1.
+    beam.Width0 = 0.6
+    beam.Width1 = 0.9
     beam.FaceCamera = true
     beam.Attachment0, beam.Attachment1 = a0, a1
-    Debris:AddItem(a0,8); Debris:AddItem(a1,8); Debris:AddItem(beam,8)
+    Debris:AddItem(a5,8); Debris:AddItem(a5,8); Debris:AddItem(beam,8)
 end
 
 local function IsBodyPart(p)
@@ -7809,6 +7908,7 @@ local Window    = Library:Window({Logo="136055008421229", FadeTime=0.3})
 local Watermark = Library:Watermark("nameless.cc(test version)")
 local KeybindList = Library:KeybindList()
 
+-- Combat page (Modified with Prediction Section)
 do -- Combat page
     local Page  = Window:Page({Name="Combat", SubPages=true})
     local Rage  = Page:SubPage({Name="Ragebot",    Columns=2})
@@ -7836,7 +7936,6 @@ do -- Combat page
         s1:Slider({Name="Hit Chance", Flag="CAT_Hit_Chance_2", Min=0, Max=100, Default=100, Callback=function(v) SA.HitChance=v end})
         s1:Toggle({Name="Wall Check", Flag="CAT_Wall_Check_3", Default=true, Callback=function(v) SA.WallCheck=v end}):Keybind({Flag="CAT_Wall_Check_3_KB", Mode="Toggle", Callback=function(v) if Library and Library.SetFlags and Library.SetFlags["CAT_Wall_Check_3"] then Library.SetFlags["CAT_Wall_Check_3"](v) end end})
         
-        -- 新增：名單與倒地檢測選項
         s1:Toggle({Name="Target Only (Blacklist)", Flag="CAT_Target_Only", Default=false, Callback=function(v) SA.TargetOnly = v end})
         s1:Toggle({Name="Ignore Whitelist", Flag="CAT_Ignore_Whitelist", Default=true, Callback=function(v) SA.IgnoreWhitelist = v end})
         s1:Toggle({Name="Down Check", Flag="CAT_Down_Check", Default=true, Callback=function(v) SA.DownCheck = v end})
@@ -7893,12 +7992,18 @@ do -- Combat page
         s1:Toggle({Name="Rapid fire", Flag="CAT_Rapid_fire_26",   Callback=function(v) RF_State=v end}):Keybind({Flag="CAT_Rapid_fire_26_KB", Mode="Toggle", Callback=function(v) if Library and Library.SetFlags and Library.SetFlags["CAT_Rapid_fire_26"] then Library.SetFlags["CAT_Rapid_fire_26"](v) end end})
         s1:Toggle({Name="Auto Reload", Flag="CAT_Auto_Reload_27",  Callback=function(v) AutoReload=v; if v then AutoReloadSetup() else clearReloadConnections() end end}):Keybind({Flag="CAT_Auto_Reload_27_KB", Mode="Toggle", Callback=function(v) if Library and Library.SetFlags and Library.SetFlags["CAT_Auto_Reload_27"] then Library.SetFlags["CAT_Auto_Reload_27"](v) end end})
         s1:Toggle({Name="Down Check", Flag="CAT_Down_Check_28",   Callback=function(v) DownCheck=v end}):Keybind({Flag="CAT_Down_Check_28_KB", Mode="Toggle", Callback=function(v) if Library and Library.SetFlags and Library.SetFlags["CAT_Down_Check_28"] then Library.SetFlags["CAT_Down_Check_28"](v) end end})
-      s1:Slider({Name="Max Cache", Flag="CAT_Max_Cache_30",    Min=0.01, Max=45,  Default=0.5,   Decimals=0.01, Callback=function(v) WB.Threshold=v end})
+        s1:Slider({Name="Max Cache", Flag="CAT_Max_Cache_30",    Min=0.01, Max=45,  Default=0.5,   Decimals=0.01, Callback=function(v) WB.Threshold=v end})
         s1:Slider({Name="Origin Radius", Flag="CAT_Origin_Radius_31",Min=0.1, Max=20, Default=18.50, Decimals=0.01, Callback=function(v) Origin_Radius=v end})
         s1:Slider({Name="Origin Scans", Flag="CAT_Origin_Scans_32", Min=1,   Max=50, Default=24,    Callback=function(v) Origin_Scans=math.floor(v) end})
         s1:Slider({Name="Scan Rate",    Flag="CAT_Scan_Rate",       Min=1,   Max=60, Default=14,    Callback=function(v) ScanRate=math.floor(v) end})
         s1:Slider({Name="Hit Radius", Flag="CAT_Hit_Radius_33",   Min=0.1, Max=25, Default=23.50, Decimals=0.01, Callback=function(v) Hit_Radius=v end})
         s1:Slider({Name="Hit Scans", Flag="CAT_Hit_Scans_34",    Min=1,   Max=50, Default=24,    Callback=function(v) Hit_Scans=math.floor(v) end})
+        
+        -- 新增：预测模式控制区
+        local s_pred = Rage:Section({Name="Torso Prediction", Side=1})
+        s_pred:Toggle({Name="Enable Prediction", Flag="CAT_Pred_Enable", Default=false, Callback=function(v) Pred_State = v end})
+        s_pred:Slider({Name="Prediction Offset", Flag="CAT_Pred_Offset", Min=0, Max=5, Default=1.2, Decimals=0.1, Callback=function(v) Pred_Offset = v end})
+
         local s2 = Rage:Section({Name="Target Selection", Side=2})
         s2:Dropdown({Name="Target Mode", Flag="CAT_Target_Mode_35", Items={"Near","Mouse","Centre","Lock"},         Default="Near", Callback=function(v) TargetMode=v end})
         s2:Dropdown({Name="Hit Sound", Flag="CAT_Hit_Sound_36",   Items={"None","Skeet","Neverlose","Gamesense"}, Default="None", Callback=function(v) HitSoundSelection=v end})
@@ -8281,129 +8386,90 @@ RunService:BindToRenderStep("SmoothMovementCamera", Enum.RenderPriority.Camera.V
 end)
 
 -- =====================================================================
--- == Optimized & Hardened Combat/Movement Core (Drop-in Replacement)
+-- == Main Heartbeat (split into sub-functions to keep register count low)
 -- =====================================================================
 
--- Precompute globals for micro-optimizations
-local tick = tick
-local os_clock = os.clock
-local math_random = math.random
-local math_rad = math.rad
-local math_sqrt = math.sqrt
-local math_abs = math.abs
-local table_insert = table.insert
-local pcall = pcall
-local ipairs = ipairs
-
--- Spatial Hash Grid parameters for high-performance collision cache & terrain adaptation
-local SPATIAL_CELL_SIZE = 16
-local spatialCache = {}
-
-local function getSpatialKey(pos)
-    return math.floor(pos.X / SPATIAL_CELL_SIZE) * 73856093 
-       + math.floor(pos.Y / SPATIAL_CELL_SIZE) * 19349663 
-       + math.floor(pos.Z / SPATIAL_CELL_SIZE) * 83492791
-end
-
--- =====================================================================
--- == Optimized Skin & Visual Update (Throttle FPS cost)
--- =====================================================================
 local function DoSkinUpdate()
     local now = tick()
-    if now - FF_S.LastSkin < 0.2 then return end -- Throttled from 1s to 0.2s for smoothness without overhead
+    if now - FF_S.LastSkin < 1 then return end
     FF_S.LastSkin = now
-    
     if FF_S.BodyEnabled then
         local char = LocalPlayer.Character
         if char then
             for _, p in ipairs(char:GetChildren()) do
                 if IsBodyPart(p) then
-                    if p.Material ~= Enum.Material.ForceField or p.Color ~= FF_S.Color then
-                        FF_S.BodyProps[p] = FF_S.BodyProps[p] or {Material=p.Material, Color=p.Color}
-                        p.Material = Enum.Material.ForceField
-                        p.Color = FF_S.Color
+                    if not FF_S.BodyProps[p] then
+                        FF_S.BodyProps[p]={Material=p.Material,Color=p.Color}
+                        p.Material=Enum.Material.ForceField; p.Color=FF_S.Color
+                    elseif p.Material~=Enum.Material.ForceField then
+                        p.Material=Enum.Material.ForceField; p.Color=FF_S.Color
                     end
                 end
             end
         end
     end
-    
     if FF_S.ToolEnabled then
         local char = LocalPlayer.Character
         local tool = char and char:FindFirstChildOfClass("Tool")
         if tool then
             for _, p in ipairs(tool:GetDescendants()) do
                 if p:IsA("BasePart") then
-                    if p.Material ~= Enum.Material.ForceField or p.Color ~= FF_S.Color then
-                        FF_S.ToolProps[p] = FF_S.ToolProps[p] or {Material=p.Material, Color=p.Color}
-                        p.Material = Enum.Material.ForceField
-                        p.Color = FF_S.Color
+                    if not FF_S.ToolProps[p] then
+                        FF_S.ToolProps[p] = {Material=p.Material, Color=p.Color}
                     end
+                    p.Material = Enum.Material.ForceField
+                    p.Color    = FF_S.Color
                 end
             end
         end
     end
 end
 
--- =====================================================================
--- == Optimized Desync Logic
--- =====================================================================
 local function DoDesyncLogic()
     if not DS.Enabled or Invis_Enabled then
         DS.AppliedOffset = Vector3.zero
-        if not DS.Enabled and DS.Model.Parent then DS.Model.Parent = nil end
+        if not DS.Enabled and DS.Model.Parent then DS.Model.Parent=nil end
         return
     end
     local char = LocalPlayer.Character
     local hrp  = char and char:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
-    
     local ragebotActive = false
     if RB_State and Valid_Pair and Valid_Pair.Target and Valid_Pair.Target.Character then
-        local tu = Valid_Pair.Target.Character:FindFirstChildOfClass("Humanoid")
-        if tu and tu.Health > 0 then
-            local tool = char:FindFirstChildOfClass("Tool")
-            if tool and tool:FindFirstChild("IsGun") then ragebotActive = true end
+        local th=Valid_Pair.Target.Character:FindFirstChild("HumanoidRootPart")
+        local tu=Valid_Pair.Target.Character:FindFirstChildOfClass("Humanoid")
+        if th and tu and tu.Health>0 then
+            local tool=char:FindFirstChildOfClass("Tool")
+            if tool and tool:FindFirstChild("IsGun") then ragebotActive=true end
         end
     end
-    
     if ragebotActive then
-        if DS.Model.Parent then DS.Model.Parent = nil end
-        DS.AppliedOffset = Vector3.zero
-        return
+        if DS.Model.Parent then DS.Model.Parent=nil end
+        DS.AppliedOffset=Vector3.zero; return
     end
-    
-    local clk = os_clock()
-    local interval = DS.TPRate > 0 and (1 / DS.TPRate) or 0
-    if clk - DS.LastTPTime >= interval then
-        DS.LastTPTime = clk
-        DS.Y_Toggle = not DS.Y_Toggle
-        local yOff = DS.Y_Toggle and (math_random(0, DS.Y * 10) / 10) or 0
-        local tOff = Vector3.new((math_random() - 0.5) * 2 * DS.X, yOff, (math_random() - 0.5) * 2 * DS.Z)
-        
-        local p = RaycastParams.new()
-        p.FilterDescendantsInstances = {char, DS.Model, Camera}
-        p.FilterType = Enum.RaycastFilterType.Exclude
-        local rr = workspace:Raycast(hrp.Position, tOff, p)
-        if rr then
-            DS.CurrentOffset = (rr.Position + rr.Normal * 1.5) - hrp.Position
-        else
-            DS.CurrentOffset = tOff
-        end
+    local clk=os.clock()
+    local interval=DS.TPRate>0 and (1/DS.TPRate) or 0
+    if clk-DS.LastTPTime >= interval then
+        DS.LastTPTime=clk
+        DS.Y_Toggle=not DS.Y_Toggle
+        local yOff=DS.Y_Toggle and (math.random(0,DS.Y*10)/10) or 0
+        local tOff=Vector3.new((math.random()-0.5)*2*DS.X, yOff, (math.random()-0.5)*2*DS.Z)
+        local p=RaycastParams.new()
+        p.FilterDescendantsInstances={char,DS.Model,Camera}
+        p.FilterType=Enum.RaycastFilterType.Exclude
+        local rr=workspace:Raycast(hrp.Position, tOff, p)
+        if rr then DS.CurrentOffset=(rr.Position+rr.Normal*1.5)-hrp.Position
+        else DS.CurrentOffset=tOff end
     end
-    
     if DS.Visualize then
-        if DS.Model.Parent ~= workspace.Terrain then DS.Model.Parent = workspace.Terrain end
-        DS.Model:PivotTo(CFrame.new(hrp.Position + DS.CurrentOffset))
+        if DS.Model.Parent~=workspace.Terrain then DS.Model.Parent=workspace.Terrain end
+        DS.Model:PivotTo(CFrame.new(hrp.Position+DS.CurrentOffset))
     else
-        if DS.Model.Parent then DS.Model.Parent = nil end
+        if DS.Model.Parent then DS.Model.Parent=nil end
     end
     DS.AppliedOffset = DS.CurrentOffset
 end
 
--- =====================================================================
--- == Optimized Animation & State Logic (LuanFei & Invisible)
--- =====================================================================
 local function DoLuanFeiLogic()
     if not LF.Enabled or Invis_Enabled then return end
     local char = LocalPlayer.Character
@@ -8467,9 +8533,9 @@ local function ApplySpoofs()
 
     if LF.Enabled and not Invis_Enabled then
         local smoothRotation = CFrame.Angles(
-            math_rad(LF.Angle), 
-            math_rad(LF.Angle * 1.5), 
-            math_rad(LF.Angle * 0.8)
+            math.rad(LF.Angle), 
+            math.rad(LF.Angle * 1.5), 
+            math.rad(LF.Angle * 0.8)
         )
         newCF = newCF * smoothRotation
         spoofed = true
@@ -8513,137 +8579,230 @@ local function DoInvisible()
 end
 
 -- =====================================================================
--- == Advanced Multi-Terrain Scanning Algorithms (High FPS Safety)
+-- == 增强方向集：原25个向量 + 斐波那契球面分布 (75个方向)
 -- =====================================================================
-
--- Alg 1: Expanded 32-Point Dynamic Adaptive Vector Table (Optimized for tight corners & ledges)
-local ScanVectors_Enhanced = {
+local ScanVectors = {
     Vector3.new(1, 0, 0), Vector3.new(0, 0, 1), Vector3.new(0, 1, 0),
     -Vector3.new(1, 0, 0), -Vector3.new(0, 0, 1), -Vector3.new(0, 1, 0),
-    Vector3.new(1, 1, 0)*0.7071, Vector3.new(1, 0, 1)*0.7071, Vector3.new(0, 1, 1)*0.7071,
-    Vector3.new(-1, 1, 0)*0.7071, Vector3.new(-1, 0, 1)*0.7071,
-    -Vector3.new(1, 0, 1)*0.7071, -Vector3.new(-1, 0, 1)*0.7071, -Vector3.new(0, -1, 1)*0.7071,
-    Vector3.new(1, 1, 1)*0.57735, Vector3.new(-1, 1, 1)*0.57735, Vector3.new(1, 1, -1)*0.57735,
-    -Vector3.new(1, 1, 1)*0.57735, -Vector3.new(1, -1, 1)*0.57735,
-    Vector3.new(0.4472, 0.8944, 0), Vector3.new(-0.4472, 0.8944, 0), 
-    Vector3.new(0.4472, 0, 0.8944), Vector3.new(-0.4472, 0, 0.8944),
-    -- Added extreme angle coverage for thick walls, ceiling corners and multi-level elevation terrain
-    Vector3.new(0, 0.7071, 0.7071), Vector3.new(0, -0.7071, 0.7071),
-    Vector3.new(0.7071, 0.7071, 0), Vector3.new(-0.7071, 0.7071, 0),
-    Vector3.new(0.5, 0.5, 0.7071), Vector3.new(-0.5, 0.5, 0.7071),
-    Vector3.new(0.5, -0.5, 0.7071), Vector3.new(-0.5, -0.5, 0.7071)
+    Vector3.new(1, 1, 0)/math.sqrt(2), Vector3.new(1, 0, 1)/math.sqrt(2), Vector3.new(0, 1, 1)/math.sqrt(2),
+    Vector3.new(-1, 1, 0)/math.sqrt(2), Vector3.new(-1, 0, 1)/math.sqrt(2),
+    -Vector3.new(1, 0, 1)/math.sqrt(2), -Vector3.new(-1, 0, 1)/math.sqrt(2), -Vector3.new(0, -1, 1)/math.sqrt(2),
+    Vector3.new(1, 1, 1)/math.sqrt(3), Vector3.new(-1, 1, 1)/math.sqrt(3), Vector3.new(1, 1, -1)/math.sqrt(3),
+    -Vector3.new(1, 1, 1)/math.sqrt(3), -Vector3.new(1, -1, 1)/math.sqrt(3),
+    Vector3.new(1,2,0)/math.sqrt(5), Vector3.new(-1,2,0)/math.sqrt(5), Vector3.new(1,0,2)/math.sqrt(5), Vector3.new(-1,0,2)/math.sqrt(5),
+    -Vector3.new(-1,0,2)/math.sqrt(5), -Vector3.new(1,0,2)/math.sqrt(5),
 }
 
-local function GetOffsets_Algo1(firePos, targetPos, offset)
-    if not offset or offset <= 0 then return {firePos} end
-    local offsets = {firePos}
-    local cfOffset = CFrame.new(firePos, targetPos) * CFrame.Angles(0, 0, math_rad(math_random(1, 90)))
-    for _, pos in ipairs(ScanVectors_Enhanced) do
-        table_insert(offsets, cfOffset * (pos * offset))
+-- 生成斐波那契球面点
+local function GenerateFibonacciSpherePoints(count)
+    local points = {}
+    local phi = math.pi * (3 - math.sqrt(5))
+    for i = 0, count - 1 do
+        local y = 1 - (i / (count - 1)) * 2
+        local radius = math.sqrt(1 - y * y)
+        local theta = phi * i
+        table.insert(points, Vector3.new(math.cos(theta) * radius, y, math.sin(theta) * radius))
+    end
+    return points
+end
+
+local EnhancedVectors = {}
+for _, v in ipairs(ScanVectors) do table.insert(EnhancedVectors, v) end
+for _, v in ipairs(GenerateFibonacciSpherePoints(50)) do table.insert(EnhancedVectors, v) end
+
+-- =====================================================================
+-- == 解析1：增强固定向量 + 全随机轴旋转 + 体积分布
+-- =====================================================================
+local function GetOffsets_Algo1(center, targetPos, radius, numPoints)
+    if not radius or radius <= 0 then return {center} end
+    local offsets = {center}
+    local cfLook = CFrame.new(center, targetPos)
+    numPoints = numPoints or math.min(#EnhancedVectors, 30)
+    -- 随机打乱方向索引
+    local indices = {}
+    for i = 1, #EnhancedVectors do indices[i] = i end
+    for i = 1, #EnhancedVectors do
+        local j = math.random(i, #EnhancedVectors)
+        indices[i], indices[j] = indices[j], indices[i]
+    end
+    for i = 1, numPoints do
+        local baseDir = EnhancedVectors[indices[i]]
+        -- 绕视线轴随机旋转 (0~360度)
+        local rollAngle = math.rad(math.random(0, 360))
+        -- 体积分布：半径在[0, radius]内随机缩放
+        local r = radius * math.random()^(1/3)
+        local dir = (cfLook * CFrame.Angles(0, 0, rollAngle)) * (baseDir * r)
+        table.insert(offsets, center + dir)
     end
     return offsets
 end
 
--- Alg 2: Adaptive Fibonacci Hemisphere with Terrain Surface Probing
+-- =====================================================================
+-- == 解析2：增强斐波那契半球 + 随机轴向旋转
+-- =====================================================================
 local function GetOffsets_Algo2(center, poleDir, radius, count)
     if not radius or radius <= 0 or count <= 0 then return {center} end
     local offsets = {center}
     local PHI = 0.6180339887
-    
-    local arb = math_abs(poleDir.X) < 0.9 and Vector3.new(1,0,0) or Vector3.new(0,1,0)
+    -- 构建正交基
+    local arb = math.abs(poleDir.X) < 0.9 and Vector3.new(1,0,0) or Vector3.new(0,1,0)
     local t1 = poleDir:Cross(arb).Unit
     local t2 = poleDir:Cross(t1).Unit
-
+    -- 绕poleDir随机旋转，使半球分布不完全固定于世界轴
+    local roll = math.rad(math.random(0, 360))
+    local rot = CFrame.fromAxisAngle(poleDir, roll)
+    t1 = rot * t1
+    t2 = rot * t2
     for i = 0, count - 1 do
-        local phi = i * PHI * 6.283185307
+        local phi = i * PHI * 2 * math.pi
         local cosT = 1 - (i + 0.5) / count
-        local sinT = math_sqrt(1 - cosT * cosT)
-        local r = radius * (math_random()^(0.3333))
-        
-        local dir = t1 * (sinT * math_cos_cached(phi)) + t2 * (sinT * math_sin_cached(phi)) + poleDir * cosT
-        table_insert(offsets, center + dir * r)
+        local sinT = math.sqrt(1 - cosT * cosT)
+        local r = radius * (math.random()^(1/3))
+        local dir = t1 * (sinT * math.cos(phi)) + t2 * (sinT * math.sin(phi)) + poleDir * cosT
+        table.insert(offsets, center + dir * r)
     end
     return offsets
 end
 
 -- =====================================================================
--- == High-Performance Ragebot Engine with Caching & Spatial Pruning
+-- == 解析3：自适应立方体网格采样 (专克复杂地形、角落、高低差)
 -- =====================================================================
-local function DoRagebot()
-    if not RB_State then Valid_Pair = nil; Locked_Path = nil; return end
-    local target = GetTarget()
-    if not target or not target.Character then Valid_Pair = nil; Locked_Path = nil; return end
-    if Locked_Path and Locked_Path.Target ~= target then Locked_Path = nil end
-    
-    local myChar = LocalPlayer.Character
-    local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
-    local tRoot = target.Character:FindFirstChild("HumanoidRootPart")
-    if not myRoot or not tRoot then return end
-    
-    local myPos = GetLocalRealPosition()
-    local tPos = tRoot.Position
+local function GetOffsets_Algo3(center, radius, maxPoints)
+    if not radius or radius <= 0 or not maxPoints or maxPoints <= 0 then return {center} end
+    local offsets = {center}
+    -- 计算每维采样数以不超过maxPoints
+    local n = math.max(2, math.ceil(maxPoints^(1/3)))
+    local step = (2 * radius) / (n - 1)
+    local count = 0
+    for ix = 0, n - 1 do
+        local x = -radius + ix * step
+        for iy = 0, n - 1 do
+            local y = -radius + iy * step
+            for iz = 0, n - 1 do
+                if count >= maxPoints then break end
+                local point = center + Vector3.new(x, y, z)
+                -- 仅保留球体内的点，提高有效性
+                if (point - center).Magnitude <= radius then
+                    table.insert(offsets, point)
+                    count = count + 1
+                end
+            end
+            if count >= maxPoints then break end
+        end
+        if count >= maxPoints then break end
+    end
+    return offsets
+end
 
-    -- 1. Ultra-fast trajectory caching check
-    if Locked_Path then
-        local dO = (myPos - Locked_Path.MyPos).Magnitude
-        local dH = (tPos - Locked_Path.TPos).Magnitude
-        local inRange = (myPos - Locked_Path.AbsO).Magnitude <= Origin_Radius
-                    and (tPos - Locked_Path.AbsH).Magnitude <= Hit_Radius
-        if dO <= WB.Threshold and dH <= WB.Threshold and inRange then
-            if CheckWallbang(Locked_Path.AbsO, Locked_Path.AbsH) then
-                Valid_Pair = {Origin = Locked_Path.AbsO, Hit = Locked_Path.AbsH, Target = target}
-                WB.Cached = true
-                return
+-- =====================================================================
+-- == 高效组合检查 (支持随机抽样，防止双重循环爆炸)
+-- =====================================================================
+local function FindValidPair(originList, targetList, maxCombos)
+    local nO, nT = #originList, #targetList
+    local total = nO * nT
+    if total <= maxCombos then
+        -- 全组合，优先中心点
+        for i = 1, nO do
+            local o = originList[i]
+            for j = 1, nT do
+                if CheckWallbang(o, targetList[j]) then
+                    return o, targetList[j]
+                end
             end
         end
-        Locked_Path = nil
+    else
+        -- 随机配对，保证尝试次数
+        local attempts = 0
+        while attempts < maxCombos do
+            local i = math.random(1, nO)
+            local j = math.random(1, nT)
+            local o = originList[i]
+            local h = targetList[j]
+            if CheckWallbang(o, h) then
+                return o, h
+            end
+            attempts = attempts + 1
+        end
+        -- 兜底：检查中心点
+        if CheckWallbang(originList[1], targetList[1]) then
+            return originList[1], targetList[1]
+        end
+    end
+    return nil, nil
+end
+
+-- =====================================================================
+-- == 核心 Ragebot 逻辑 (三算法轮换，强化复杂地形穿透)
+-- =====================================================================
+local function Dobot()
+    if not RB_State then Valid_Pair=nil; Locked_Path=nil; return end
+    local target=GetTarget()
+    if not target or not target.Character then Valid_Pair=nil; Locked_Path=nil; return end
+    if Locked_Path and Locked_Path.Target~=target then Locked_Path=nil end
+    
+    local myRoot=LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    local tRoot=target.Character:FindFirstChild("HumanoidRootPart")
+    if not myRoot or not tRoot then return end
+    local myPos=GetLocalRealPosition()
+    local tPos=tRoot.Position
+
+    -- 1. 缓存复用
+    if Locked_Path then
+        local dO=(myPos-Locked_Path.MyPos).Magnitude
+        local dH=(tPos-Locked_Path.TPos).Magnitude
+        local inRange=(myPos-Locked_Path.AbsO).Magnitude<=Origin_Radius
+                   and (tPos-Locked_Path.AbsH).Magnitude<=Hit_Radius
+        if dO<=WB.Threshold and dH<=WB.Threshold and inRange then
+            if CheckWallbang(Locked_Path.AbsO,Locked_Path.AbsH) then
+                Valid_Pair={Origin=Locked_Path.AbsO,Hit=Locked_Path.AbsH,Target=target}
+                WB.Cached=true; return
+            end
+        end
+        Locked_Path=nil
     end
 
-    -- 2. Dynamic Scan Rate Throttle (Protects FPS in heavy environments)
-    if tick() - WB.LastScan < (1 / ScanRate) then return end
-    WB.LastScan = tick()
-    WB.Round = WB.Round + 1
+    -- 2. 扫描速率限制
+    if tick()-WB.LastScan < 1/ScanRate then return end
+    WB.LastScan=tick()
+    WB.Round=WB.Round+1
 
-    -- 3. Adaptive Algorithm Shifting based on Terrain Complexity
+    -- 3. 根据轮数交替三套算法
     local newOrigin, newTarget
-    if WB.Round % 2 == 0 then
-        newOrigin = GetOffsets_Algo1(myPos, tPos, Origin_Radius)
-        newTarget = GetOffsets_Algo1(tPos, myPos, Hit_Radius)
-    else
+    local maxCombos = 800 -- 最大组合检查数，可调
+
+    if WB.Round % 3 == 0 then
+        -- 算法1：增强固定向量 + 全随机旋转
+        newOrigin = GetOffsets_Algo1(myPos, tPos, Origin_Radius, 35)
+        newTarget = GetOffsets_Algo1(tPos, myPos, Hit_Radius, 35)
+    elseif WB.Round % 3 == 1 then
+        -- 算法2：增强斐波那契半球
         local oPole = (tPos - myPos)
         if oPole.Magnitude < 0.001 then return end
         oPole = oPole.Unit
         local hPole = -oPole
-        
-        newOrigin = GetOffsets_Algo2(myPos, oPole, Origin_Radius, Origin_Scans)
-        newTarget = GetOffsets_Algo2(tPos, hPole, Hit_Radius, Hit_Scans)
-    end
-
-    -- 4. Fast Spatial Raycast Exhaustive Search with Early-Out Break
-    local bestPO, bestPH = nil, nil
-    for _, pO in ipairs(newOrigin) do
-        for _, pH in ipairs(newTarget) do
-            if CheckWallbang(pO, pH) then
-                bestPO = pO
-                bestPH = pH
-                break
-            end
-        end
-        if bestPO then break end
-    end
-
-    if bestPO then
-        Locked_Path = {AbsO = bestPO, AbsH = bestPH, Target = target, MyPos = myPos, TPos = tPos}
-        Valid_Pair = {Origin = bestPO, Hit = bestPH, Target = target}
-        WB.Cached = false
+        newOrigin = GetOffsets_Algo2(myPos, oPole, Origin_Radius, Origin_Scans or 25)
+        newTarget = GetOffsets_Algo2(tPos, hPole, Hit_Radius, Hit_Scans or 25)
     else
-        Valid_Pair = nil
+        -- 算法3：网格采样，针对复杂角落/高低差/厚墙
+        local maxPtsOrigin = math.max(30, Origin_Scans or 30)
+        local maxPtsTarget = math.max(30, Hit_Scans or 30)
+        newOrigin = GetOffsets_Algo3(myPos, Origin_Radius, maxPtsOrigin)
+        newTarget = GetOffsets_Algo3(tPos, Hit_Radius, maxPtsTarget)
+    end
+
+    -- 4. 高效组合查找
+    local bestPO, bestPH = FindValidPair(newOrigin, newTarget, maxCombos)
+
+    -- 5. 更新缓存
+    if bestPO then
+        Locked_Path={AbsO=bestPO,AbsH=bestPH,Target=target,MyPos=myPos,TPos=tPos}
+        Valid_Pair={Origin=bestPO,Hit=bestPH,Target=target}
+        WB.Cached=false
+    else
+        Valid_Pair=nil
     end
 end
 
--- =====================================================================
--- == Main Heartbeat Connection
--- =====================================================================
 RunService.Heartbeat:Connect(function()
     DoSkinUpdate()
     ApplySpoofs()
@@ -8774,134 +8933,14 @@ RunService.RenderStepped:Connect(function(dt)
     end
 end)
 
--- == 预测状态管理 ==
-local PredictionState = {
-    Active = false,
-    LastCheck = 0,
-    CheckInterval = 0.01,
-    TorsoHistory = {},
-    MaxHistory = 5,
-    VelocityThreshold = 40, -- 速度突变阈值
-    PositionThreshold = 10, -- 位置跳变阈值
-    PredictionTime = 0.015,  -- 预测时间（秒）
-    StableCount = 0,
-    RequiredStable = 1      -- 需要连续异常帧数才激活
-}
-
--- == Torso异常检测函数 ==
-local function CheckTorsoAnomaly(target)
-    if not target or not target.Character then return false end
-    
-    local torso = target.Character:FindFirstChild("Torso") or target.Character:FindFirstChild("UpperTorso")
-    if not torso then return false end
-    
-    local currentTime = tick()
-    
-    -- 更新检测间隔
-    if currentTime - PredictionState.LastCheck < PredictionState.CheckInterval then
-        return PredictionState.Active
-    end
-    PredictionState.LastCheck = currentTime
-    
-    -- 记录Torso数据
-    local currentData = {
-        Time = currentTime,
-        Position = torso.Position,
-        Velocity = torso.AssemblyLinearVelocity and torso.AssemblyLinearVelocity.Magnitude or 0
-    }
-    
-    table.insert(PredictionState.TorsoHistory, currentData)
-    if #PredictionState.TorsoHistory > PredictionState.MaxHistory then
-        table.remove(PredictionState.TorsoHistory, 1)
-    end
-    
-    -- 需要足够历史数据
-    if #PredictionState.TorsoHistory < 1 then
-        PredictionState.StableCount = 0
-        PredictionState.Active = false
-        return false
-    end
-    
-    -- 检测异常模式
-    local anomalies = 0
-    
-    for i = 2, #PredictionState.TorsoHistory do
-        local prev = PredictionState.TorsoHistory[i-1]
-        local curr = PredictionState.TorsoHistory[i]
-        local dt = curr.Time - prev.Time
-        
-        if dt > 0.01 then
-            local velocity = (curr.Position - prev.Position).Magnitude / dt
-            
-            -- 检测速度异常
-            if velocity > PredictionState.VelocityThreshold then
-                anomalies = anomalies + 1
-            end
-            
-            -- 检测位置跳变
-            if (curr.Position - prev.Position).Magnitude > PredictionState.PositionThreshold then
-                anomalies = anomalies + 1
-            end
-        end
-    end
-    
-    -- 更新稳定计数
-    if anomalies >= 2 then
-        PredictionState.StableCount = math.min(PredictionState.StableCount + 1, PredictionState.RequiredStable)
-    else
-        PredictionState.StableCount = math.max(PredictionState.StableCount - 1, 0)
-    end
-    
-    -- 激活/停用预测
-    local shouldActivate = PredictionState.StableCount >= PredictionState.RequiredStable
-    
-    if shouldActivate ~= PredictionState.Active then
-        PredictionState.Active = shouldActivate
-        if shouldActivate then
-            print("[王伟宸🍑")
-        else
-            print("我的🍆")
-        end
-    end
-    
-    return PredictionState.Active
-end
-
--- == 预测位置计算 ==
-local function GetPredictedPosition(target)
-    if not target or not target.Character then return nil end
-    
-    local torso = target.Character:FindFirstChild("Torso") or target.Character:FindFirstChild("UpperTorso")
-    if not torso then return nil end
-    
-    -- 获取当前速度
-    local velocity = torso.AssemblyLinearVelocity or Vector3.zero
-    
-    -- 计算预测位置
-    local predictedPos = torso.Position + velocity * PredictionState.PredictionTime
-    
-    -- 验证预测合理性
-    local distance = (predictedPos - torso.Position).Magnitude
-    if distance > 70 then -- 最大预测距离限制
-        predictedPos = torso.Position + velocity.Unit * 70
-    end
-    
-    return predictedPos
-end
-
--- == Ragebot fire Heartbeat (优化版) ==
+-- == Ragebot fire Heartbeat with Precise Torso Prediction & Native Shoot Integration ==
 RunService.Heartbeat:Connect(function()
     if not RB_State or not Valid_Pair then return end
-    
     local char = LocalPlayer.Character
     local tool = char and char:FindFirstChildOfClass("Tool")
     if not (tool and tool:FindFirstChild("IsGun")) then return end
-    
-    -- 射速控制（改为0.001秒）
-    local waitTime = 0.001
-    local gunConfig = nil
-    
-    -- 保留原版枪械配置读取（用于伤害计算等）
+
+    local waitTime, gunConfig = 0, nil
     if RF_State then
         local gn = tool.Name
         if not (gn:find("Beretta") or gn:find("TEC")) then
@@ -8910,77 +8949,86 @@ RunService.Heartbeat:Connect(function()
                 local ok, gs = pcall(require, cfg)
                 if ok and gs then 
                     gunConfig = gs
+                    waitTime = 0.001 -- 射速强制修改为 0.001
+                else 
+                    waitTime = 0.001 
                 end
+            else 
+                waitTime = 0.001 
             end
+        else
+            waitTime = 0.001
         end
+    else 
+        waitTime = 0.001 
     end
-    
-    -- 使用0.001秒射速
+
     if tick() - Last_Shot < waitTime then return end
-    
-    -- 检查弹药
+
     local vals = tool:FindFirstChild("Values")
     local ammo = vals and vals:FindFirstChild("SERVER_Ammo")
     if not (ammo and ammo.Value > 0) then return end
-    
-    -- 检测Torso异常并切换预测模式
-    local usePrediction = CheckTorsoAnomaly(Valid_Pair.Target)
-    
-    -- 选择目标部件（预测模式锁定Torso，否则使用原版逻辑）
-    local part
-    local hitPosition
-    
-    if usePrediction then
-        -- 预测模式：锁定Torso
-        part = Valid_Pair.Target.Character:FindFirstChild("Torso") or Valid_Pair.Target.Character:FindFirstChild("UpperTorso")
-        hitPosition = GetPredictedPosition(Valid_Pair.Target)
+
+    -- 原生组件获取
+    local targetChar = Valid_Pair.Target and Valid_Pair.Target.Character
+    if not targetChar then return end
+
+    local headPart = targetChar:FindFirstChild("Head")
+    local torsoPart = targetChar:FindFirstChild("Torso") or targetChar:FindFirstChild("UpperTorso")
+    local hrpPart = targetChar:FindFirstChild("HumanoidRootPart")
+
+    -- 默认击中部件（保留原逻辑）
+    local part = headPart or hrpPart
+    local hitPos = Valid_Pair.Hit
+
+    -- 精准 Torso 异常检测与预测逻辑（不使用速度检测，仅通过 R6 Torso 状态/位置异常切换）
+    if Pred_State and torsoPart then
+        local isTorsoAbnormal = false
         
-        -- 如果预测失败，使用Torso实际位置
-        if not hitPosition or not part then
-            part = Valid_Pair.Target.Character:FindFirstChild("Head") or Valid_Pair.Target.Character:FindFirstChild("HumanoidRootPart")
-            hitPosition = part and part.Position or Valid_Pair.Hit
+        -- 条件判定：检测 Torso 是否存在异常（例如面向、基底碰撞或由特殊自制布娃娃引起的坐标异常/位移错位）
+        local currentTorsoCF = torsoPart.CFrame
+        if hrpPart then
+            local distanceToHRP = (currentTorsoCF.Position - hrpPart.Position).Magnitude
+            -- 當 Torso 與 HRP 距离异常（比如布娃娃触发导致身体结构错位），判定为异常状态
+            if distanceToHRP > 8.5 then
+                isTorsoAbnormal = true
+            end
         end
-    else
-        -- 原版逻辑：优先头部
-        part = Valid_Pair.Target.Character:FindFirstChild("Head") or Valid_Pair.Target.Character:FindFirstChild("HumanoidRootPart")
-        hitPosition = Valid_Pair.Hit
+
+        -- 如果真的检测到 Torso 异常，精准切换模式并锁定目标为 Torso（仅限 Torso）
+        if isTorsoAbnormal then
+            part = torsoPart
+            -- 应用高精度 Torso 预测算法（基于位置偏移与补偿，不含速度判定）
+            local rawTargetPos = torsoPart.Position
+            hitPos = rawTargetPos + (Vector3.new(0, Pred_Offset or 1.2, 0))
+        end
     end
-    
+
     if not part then return end
-    
-    -- 生成唯一Key
+
     local key = "K" .. math.random(1000, 9999)
-    
-    -- 计算射击方向
-    local shootOrigin = Valid_Pair.Origin
-    local direction
-    
-    if usePrediction and hitPosition then
-        -- 预测模式：指向预测位置
-        direction = (hitPosition - shootOrigin).Unit
-    else
-        -- 原版模式：使用原始方向
-        direction = (Valid_Pair.Hit - Valid_Pair.Origin).Unit
+    local dir = (hitPos - Valid_Pair.Origin).Unit
+
+    -- 主动开火同步与槍声触发集成（保留原二代开火/枪声思路）
+    local function shoot()
+        GN_S:FireServer(tick(), key, tool, "FDS9I83", Valid_Pair.Origin, {dir}, false)
+        if TR.Enabled then task.spawn(CreateTracer, Valid_Pair.Origin, dir) end
+        ZF_H:FireServer("🧈", tool, key, 1, part, hitPos, dir)
+        if tool:FindFirstChild("Hitmarker") then tool.Hitmarker:Fire(part) end
+        
+        -- 原生枪声与特效触发逻辑（听得到自己的开火枪声与特殊表现）
+        if tool:FindFirstChild("Handle") then
+            local handle = tool.Handle
+            local fireSound = handle:FindFirstChild("Fire") or handle:FindFirstChild("Shoot") or handle:FindFirstChildOfClass("Sound")
+            if fireSound and fireSound:IsA("Sound") then
+                fireSound:Play()
+            end
+        end
     end
-    
-    -- 发送射击事件（保留原版所有FireServer调用）
-    GN_S:FireServer(tick(), key, tool, "FDS9I83", shootOrigin, {direction}, false)
-    
-    -- 弹道效果
-    if TR.Enabled then 
-        task.spawn(CreateTracer, shootOrigin, direction) 
-    end
-    
-    -- 命中服务器事件（使用选定的部件和位置）
-    local finalHitPos = usePrediction and hitPosition or Valid_Pair.Hit
-    ZF_H:FireServer("🧈", tool, key, 1, part, finalHitPos, direction)
-    
-    -- Hitmarker效果
-    if tool:FindFirstChild("Hitmarker") then 
-        tool.Hitmarker:Fire(part) 
-    end
-    
-    -- 伤害日志（保留原版完整逻辑）
+
+    -- 执行射击
+    shoot()
+
     if HitLogEnabled then
         local dmg, mult = 17, 1.35
         if gunConfig then 
@@ -8993,38 +9041,13 @@ RunService.Heartbeat:Connect(function()
                 mult = c.HeadshotMultiplier or 1.35 
             end
         end
-        
-        -- 伤害计算（预测模式使用实际距离，原版使用原始距离）
-        local distance
-        if usePrediction then
-            distance = (shootOrigin - finalHitPos).Magnitude
-        else
-            distance = (Valid_Pair.Origin - Valid_Pair.Hit).Magnitude
-        end
-        
-        local fd = (dmg * mult) - (math.floor(distance / 50) * 2)
+        local fd = (dmg * mult) - (math.floor((Valid_Pair.Origin - hitPos).Magnitude / 50) * 2)
         local mp = GetLocalRealPosition()
-        local tr = Valid_Pair.Target.Character:FindFirstChild("HumanoidRootPart")
-        
-        ProcessHitLog(
-            Valid_Pair.Target.Name,
-            tool.Name,
-            math.floor(fd * 100) / 100,
-            tr and math.floor((mp - tr.Position).Magnitude) or 0,
-            WB.Cached
-        )
+        local tr = hrpPart
+        ProcessHitLog(Valid_Pair.Target.Name, tool.Name, math.floor(fd * 100) / 100, tr and math.floor((mp - tr.Position).Magnitude) or 0, WB.Cached)
     end
-    
-    -- 更新最后射击时间
+
     Last_Shot = tick()
-    
-    -- 预测状态调试信息
-    if usePrediction and tick() % 1 < 0.1 then
-        local predDist = hitPosition and (hitPosition - (part and part.Position or Vector3.zero)).Magnitude or 0
-        if predDist > 1 then
-            -- 可选的调试输出，显示预测偏移距离
-        end
-    end
 end)
 
 -- == Anti Shiftlock Heartbeat ==
