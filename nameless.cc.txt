@@ -8419,8 +8419,8 @@ RunService:BindToRenderStep("SmoothMovementCamera", Enum.RenderPriority.Camera.V
     Camera.CFrame = CFrame.new(MC.SmoothPos, MC.SmoothPos+cf.LookVector)
 end)
 
--- =====================================================================
--- == Optimized & Hardened Combat/Movement Core (Extreme Rage-Scan Edition)
+-- ====================================================================
+-- == Optimized & Hardened Combat/Movement Core (Drop-in Replacement)
 -- =====================================================================
 
 -- Precompute globals for micro-optimizations
@@ -8430,20 +8430,18 @@ local math_random = math.random
 local math_rad = math.rad
 local math_sqrt = math.sqrt
 local math_abs = math.abs
-local math_floor = math.floor
 local table_insert = table.insert
 local pcall = pcall
 local ipairs = ipairs
-local workspace = workspace
 
 -- Spatial Hash Grid parameters for high-performance collision cache & terrain adaptation
 local SPATIAL_CELL_SIZE = 16
 local spatialCache = {}
 
 local function getSpatialKey(pos)
-    return math_floor(pos.X / SPATIAL_CELL_SIZE) * 73856093 
-       + math_floor(pos.Y / SPATIAL_CELL_SIZE) * 19349663 
-       + math_floor(pos.Z / SPATIAL_CELL_SIZE) * 83492791
+    return math.floor(pos.X / SPATIAL_CELL_SIZE) * 73856093 
+       + math.floor(pos.Y / SPATIAL_CELL_SIZE) * 19349663 
+       + math.floor(pos.Z / SPATIAL_CELL_SIZE) * 83492791
 end
 
 -- =====================================================================
@@ -8451,7 +8449,7 @@ end
 -- =====================================================================
 local function DoSkinUpdate()
     local now = tick()
-    if now - FF_S.LastSkin < 0.2 then return end
+    if now - FF_S.LastSkin < 0.2 then return end -- Throttled from 1s to 0.2s for smoothness without overhead
     FF_S.LastSkin = now
     
     if FF_S.BodyEnabled then
@@ -8654,10 +8652,10 @@ local function DoInvisible()
 end
 
 -- =====================================================================
--- == Advanced Multi-Terrain Scanning Algorithms (暴力全地形、高低差、厚墙与地基利用增强版)
+-- == Advanced Multi-Terrain Scanning Algorithms (High FPS Safety)
 -- =====================================================================
 
--- Alg 1: 保留并扩充的增强32点动态自适应矩阵 (全方位无死角应对角落地形、左右复杂高低差)
+-- Alg 1: Expanded 32-Point Dynamic Adaptive Vector Table (Optimized for tight corners & ledges)
 local ScanVectors_Enhanced = {
     Vector3.new(1, 0, 0), Vector3.new(0, 0, 1), Vector3.new(0, 1, 0),
     -Vector3.new(1, 0, 0), -Vector3.new(0, 0, 1), -Vector3.new(0, 1, 0),
@@ -8668,14 +8666,11 @@ local ScanVectors_Enhanced = {
     -Vector3.new(1, 1, 1)*0.57735, -Vector3.new(1, -1, 1)*0.57735,
     Vector3.new(0.4472, 0.8944, 0), Vector3.new(-0.4472, 0.8944, 0), 
     Vector3.new(0.4472, 0, 0.8944), Vector3.new(-0.4472, 0, 0.8944),
+    -- Added extreme angle coverage for thick walls, ceiling corners and multi-level elevation terrain
     Vector3.new(0, 0.7071, 0.7071), Vector3.new(0, -0.7071, 0.7071),
     Vector3.new(0.7071, 0.7071, 0), Vector3.new(-0.7071, 0.7071, 0),
     Vector3.new(0.5, 0.5, 0.7071), Vector3.new(-0.5, 0.5, 0.7071),
-    Vector3.new(0.5, -0.5, 0.7071), Vector3.new(-0.5, -0.5, 0.7071),
-    -- [新增暴走级地形探测点]: 专门针对极端复杂地形、超高垂直高低差及厚地基边缘
-    Vector3.new(0, 1.5, 0), Vector3.new(0, -1.5, 0),
-    Vector3.new(1.2, 0.5, 1.2)*0.6, Vector3.new(-1.2, 0.5, 1.2)*0.6,
-    Vector3.new(1.2, -0.5, 1.2)*0.6, Vector3.new(-1.2, -0.5, 1.2)*0.6
+    Vector3.new(0.5, -0.5, 0.7071), Vector3.new(-0.5, -0.5, 0.7071)
 }
 
 local function GetOffsets_Algo1(firePos, targetPos, offset)
@@ -8688,7 +8683,7 @@ local function GetOffsets_Algo1(firePos, targetPos, offset)
     return offsets
 end
 
--- Alg 2: 适应性斐波那契半球（带高低差扩散）
+-- Alg 2: Adaptive Fibonacci Hemisphere with Terrain Surface Probing
 local function GetOffsets_Algo2(center, poleDir, radius, count)
     if not radius or radius <= 0 or count <= 0 then return {center} end
     local offsets = {center}
@@ -8704,37 +8699,10 @@ local function GetOffsets_Algo2(center, poleDir, radius, count)
         local sinT = math_sqrt(1 - cosT * cosT)
         local r = radius * (math_random()^(0.3333))
         
-        -- 安全调用缓存数学函数或标准数学函数
-        local dir = t1 * (sinT * math.cos(phi)) + t2 * (sinT * math.sin(phi)) + poleDir * cosT
+        local dir = t1 * (sinT * math_cos_cached(phi)) + t2 * (sinT * math_sin_cached(phi)) + poleDir * cosT
         table_insert(offsets, center + dir * r)
     end
     return offsets
-end
-
--- Alg 3 [新增]: 薄墙瞬时穿透与厚地基利用专用直线切片穿透算法 (穿透单层薄墙与利用地基边缘)
-local function GetPenetrationBypassPoints(firePos, targetPos)
-    local points = {}
-    local direction = targetPos - firePos
-    local distance = direction.Magnitude
-    if distance < 1 then return points end
-    
-    local unitDir = direction.Unit
-    -- 针对薄墙：在起点前方极近距离、中段和目标点前方进行侧向拓展，绕过厚地基盲区或单层薄墙阻挡
-    table_insert(points, firePos + unitDir * 0.5)
-    table_insert(points, firePos + unitDir * (distance * 0.2))
-    table_insert(points, firePos + unitDir * (distance * 0.8))
-    
-    -- 左右偏置，用于绕过左右复杂掩体与薄墙交界处
-    local rightVector = unitDir:Cross(Vector3.new(0, 1, 0))
-    if rightVector.Magnitude > 0.01 then
-        rightVector = rightVector.Unit
-        table_insert(points, firePos + rightVector * 1.5)
-        table_insert(points, firePos - rightVector * 1.5)
-        table_insert(targetPos + rightVector * 1.2)
-        table_insert(targetPos - rightVector * 1.2)
-    end
-    
-    return points
 end
 
 -- =====================================================================
@@ -8754,7 +8722,7 @@ local function DoRagebot()
     local myPos = GetLocalRealPosition()
     local tPos = tRoot.Position
 
-    -- 1. 空间网格哈希与轨迹双重极速缓存
+    -- 1. Ultra-fast trajectory caching check
     if Locked_Path then
         local dO = (myPos - Locked_Path.MyPos).Magnitude
         local dH = (tPos - Locked_Path.TPos).Magnitude
@@ -8770,39 +8738,27 @@ local function DoRagebot()
         Locked_Path = nil
     end
 
-    -- 2. 动态扫描频率调节 (保护 FPS 的同时兼顾暴力全地形搜寻)
+    -- 2. Dynamic Scan Rate Throttle (Protects FPS in heavy environments)
     if tick() - WB.LastScan < (1 / ScanRate) then return end
     WB.LastScan = tick()
     WB.Round = WB.Round + 1
 
-    -- 3. 暴力多算法混洗切换 (轮流使用 Alg 1, Alg 2 以及新增的 薄墙/地基边缘切片穿透算法)
-    local newOrigin, newTarget = {}, {}
-    
-    if WB.Round % 3 == 0 then
-        -- 算法1：矩阵暴力全向扫描（适合复杂角落、高低差）
+    -- 3. Adaptive Algorithm Shifting based on Terrain Complexity
+    local newOrigin, newTarget
+    if WB.Round % 2 == 0 then
         newOrigin = GetOffsets_Algo1(myPos, tPos, Origin_Radius)
         newTarget = GetOffsets_Algo1(tPos, myPos, Hit_Radius)
-    elseif WB.Round % 3 == 1 then
-        -- 算法2：斐波那契半球扫描（适合远距离复杂地形）
-        local oPole = (tPos - myPos)
-        if oPole.Magnitude >= 0.001 then
-            oPole = oPole.Unit
-            local hPole = -oPole
-            newOrigin = GetOffsets_Algo2(myPos, oPole, Origin_Radius, Origin_Scans)
-            newTarget = GetOffsets_Algo2(tPos, hPole, Hit_Radius, Hit_Scans)
-        else
-            newOrigin = {myPos}
-            newTarget = {tPos}
-        end
     else
-        -- 算法3 [新增暴力强解]：薄墙直接穿透点与厚地基利用点
-        newOrigin = GetPenetrationBypassPoints(myPos, tPos)
-        table_insert(newOrigin, 1, myPos)
-        newTarget = GetPenetrationBypassPoints(tPos, myPos)
-        table_insert(newTarget, 1, tPos)
+        local oPole = (tPos - myPos)
+        if oPole.Magnitude < 0.001 then return end
+        oPole = oPole.Unit
+        local hPole = -oPole
+        
+        newOrigin = GetOffsets_Algo2(myPos, oPole, Origin_Radius, Origin_Scans)
+        newTarget = GetOffsets_Algo2(tPos, hPole, Hit_Radius, Hit_Scans)
     end
 
-    -- 4. 极致优化的双重循环与短路退出 (Early-Out Break) 保证 FPS
+    -- 4. Fast Spatial Raycast Exhaustive Search with Early-Out Break
     local bestPO, bestPH = nil, nil
     for _, pO in ipairs(newOrigin) do
         for _, pH in ipairs(newTarget) do
