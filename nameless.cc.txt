@@ -8234,11 +8234,13 @@ do -- Visuals page
         ambSec:Slider({Name="Brightness", Flag="CAT_VS_Brightness", Min=-1, Max=1, Default=0.15, Decimals=0.01, Callback=function(v) AMB.Brightness=v end})
     end
 
-    do -- ESP
+    -- 一 (整合 Tool ESP UI 选项后)
+do -- ESP
         local sec = Sub:Section({Name="ESP", Side=2})
         sec:Toggle({Name="Nametag", Flag="CAT_Nametag_42",  Default=false, Callback=function(v) NametagEnabled=v; if not v then for _,p in pairs(Players:GetPlayers()) do local t=p.Character and p.Character:FindFirstChild("CAT_NameTag"); local l=t and t:FindFirstChild("L"); if l then l.Visible=false; if not DistanceEnabled then t.Enabled=false end end end end end}):Keybind({Flag="CAT_Nametag_42_KB", Mode="Toggle", Callback=function(v) if Library and Library.SetFlags and Library.SetFlags["CAT_Nametag_42"] then Library.SetFlags["CAT_Nametag_42"](v) end end})
         sec:Toggle({Name="Distance", Flag="CAT_Distance_43", Default=false, Callback=function(v) DistanceEnabled=v; if not v then for _,p in pairs(Players:GetPlayers()) do local t=p.Character and p.Character:FindFirstChild("CAT_NameTag"); local l=t and t:FindFirstChild("DL"); if l then l.Visible=false; if not NametagEnabled then t.Enabled=false end end end end end}):Keybind({Flag="CAT_Distance_43_KB", Mode="Toggle", Callback=function(v) if Library and Library.SetFlags and Library.SetFlags["CAT_Distance_43"] then Library.SetFlags["CAT_Distance_43"](v) end end})
         sec:Toggle({Name="Health", Flag="CAT_Health_44",   Default=false, Callback=function(v) HealthEnabled=v;  if not v then for _,p in pairs(Players:GetPlayers()) do local t=p.Character and p.Character:FindFirstChild("CAT_NameTag"); local l=t and t:FindFirstChild("HL"); if l then l.Visible=false end end end end}):Keybind({Flag="CAT_Health_44_KB", Mode="Toggle", Callback=function(v) if Library and Library.SetFlags and Library.SetFlags["CAT_Health_44"] then Library.SetFlags["CAT_Health_44"](v) end end})
+        sec:Toggle({Name="Tool", Flag="CAT_Tool_ESP", Default=false, Callback=function(v) ToolEspEnabled=v; if not v then for _,p in pairs(Players:GetPlayers()) do local t=p.Character and p.Character:FindFirstChild("CAT_ToolTag"); if t then t.Enabled=false end end end end}):Keybind({Flag="CAT_Tool_ESP_KB", Mode="Toggle", Callback=function(v) if Library and Library.SetFlags and Library.SetFlags["CAT_Tool_ESP"] then Library.SetFlags["CAT_Tool_ESP"](v) end end})
         sec:Toggle({Name="Safe Chams", Flag="CAT_Safe_Chams_45", Default=false, Callback=function(v) SafeChamsEnabled = v; if v then StartSafeChams() end end}):Keybind({Flag="CAT_Safe_Chams_45_KB", Mode="Toggle", Callback=function(v) if Library and Library.SetFlags and Library.SetFlags["CAT_Safe_Chams_45"] then Library.SetFlags["CAT_Safe_Chams_45"](v) end end})
         local ct = sec:Toggle({Name="Chams", Flag="CAT_VS_Chams", Default=false, Callback=function(v)
             espSets.enabled=v
@@ -8509,7 +8511,7 @@ end)
 
 -- ====================================================================
 -- == Optimized & Hardened Combat/Movement Core (Drop-in Replacement)
--- == Enhanced Multi-Terrain Adaptive Scanners & High-Performance Pipeline
+-- == Enhanced Multi-Terrain Adaptive Scanning & High-Performance Core
 -- =====================================================================
 
 -- Precompute globals for micro-optimizations
@@ -8520,16 +8522,21 @@ local math_rad = math.rad
 local math_sqrt = math.sqrt
 local math_abs = math.abs
 local math_floor = math.floor
+local math_min = math.min
+local math_max = math.max
 local math_cos = math.cos
 local math_sin = math.sin
-local math_atan2 = math.atan2
 local table_insert = table.insert
 local pcall = pcall
 local ipairs = ipairs
+local Vector3 = Vector3
+local CFrame = CFrame
+local RaycastParams = RaycastParams
+local Enum = Enum
 local workspace = workspace
 
 -- Spatial Hash Grid parameters for high-performance collision cache & terrain adaptation
-local SPATIAL_CELL_SIZE = 16
+local SPATIAL_CELL_SIZE = 12
 local spatialCache = {}
 
 local function getSpatialKey(pos)
@@ -8746,40 +8753,50 @@ local function DoInvisible()
 end
 
 -- =====================================================================
--- == Advanced Multi-Terrain Scanning Algorithms (Hardened & Expanded)
+-- == Ultra-Advanced Multi-Terrain Scanning Algorithms (Bruteforce Hardened)
 -- =====================================================================
 
--- Alg 1: Enhanced 36-Point Dynamic Adaptive Vector Table (Optimized for tight corners, ledges & multi-level heights)
-local ScanVectors_Enhanced = {
+-- Alg 1: Enhanced 48-Point Hyper-Adaptive Vector Table (Optimized for deep corners, thin walls, and multi-tier ledges)
+local ScanVectors_HyperEnhanced = {
+    -- Standard Axes
     Vector3.new(1, 0, 0), Vector3.new(0, 0, 1), Vector3.new(0, 1, 0),
     -Vector3.new(1, 0, 0), -Vector3.new(0, 0, 1), -Vector3.new(0, 1, 0),
+    -- Diagonal Planes (45 deg)
     Vector3.new(1, 1, 0)*0.7071, Vector3.new(1, 0, 1)*0.7071, Vector3.new(0, 1, 1)*0.7071,
-    Vector3.new(-1, 1, 0)*0.7071, Vector3.new(-1, 0, 1)*0.7071,
+    Vector3.new(-1, 1, 0)*0.7071, Vector3.new(-1, 0, 1)*0.7071, Vector3.new(0, -1, 1)*0.7071,
     -Vector3.new(1, 0, 1)*0.7071, -Vector3.new(-1, 0, 1)*0.7071, -Vector3.new(0, -1, 1)*0.7071,
+    -- Cubic Intermediates (3D Octants)
     Vector3.new(1, 1, 1)*0.57735, Vector3.new(-1, 1, 1)*0.57735, Vector3.new(1, 1, -1)*0.57735,
-    -Vector3.new(1, 1, 1)*0.57735, -Vector3.new(1, -1, 1)*0.57735,
+    -Vector3.new(1, 1, 1)*0.57735, Vector3.new(-1, -1, 1)*0.57735, Vector3.new(1, -1, -1)*0.57735,
+    -- Complex Asymmetric Skew Angles (Thick Wall & Foundation Penetration)
     Vector3.new(0.4472, 0.8944, 0), Vector3.new(-0.4472, 0.8944, 0), 
     Vector3.new(0.4472, 0, 0.8944), Vector3.new(-0.4472, 0, 0.8944),
     Vector3.new(0, 0.7071, 0.7071), Vector3.new(0, -0.7071, 0.7071),
     Vector3.new(0.7071, 0.7071, 0), Vector3.new(-0.7071, 0.7071, 0),
     Vector3.new(0.5, 0.5, 0.7071), Vector3.new(-0.5, 0.5, 0.7071),
     Vector3.new(0.5, -0.5, 0.7071), Vector3.new(-0.5, -0.5, 0.7071),
-    -- High/Low elevation aggressive expansion vectors
-    Vector3.new(0, 1.2, 0.3), Vector3.new(0, -1.2, 0.3),
-    Vector3.new(0.8, 0.8, 0.5), Vector3.new(-0.8, 0.8, 0.5)
+    -- Extreme Micro-Penetration Vectors for Thin Obstacles & Foundation Cracks
+    Vector3.new(0.2, 0.98, 0), Vector3.new(-0.2, 0.98, 0),
+    Vector3.new(0, 0.98, 0.2), Vector3.new(0, 0.98, -0.2),
+    Vector3.new(0.98, 0.2, 0), Vector3.new(-0.98, 0.2, 0),
+    Vector3.new(0, 0.2, 0.98), Vector3.new(0, 0.2, -0.98),
+    Vector3.new(0.6, 0.6, 0.5), Vector3.new(-0.6, 0.6, 0.5),
+    Vector3.new(0.6, -0.6, 0.5), Vector3.new(-0.6, -0.6, 0.5),
+    Vector3.new(0.3, 0.3, 0.9), Vector3.new(-0.3, 0.3, 0.9),
+    Vector3.new(0.3, -0.3, 0.9), Vector3.new(-0.3, -0.3, 0.9)
 }
 
 local function GetOffsets_Algo1(firePos, targetPos, offset)
     if not offset or offset <= 0 then return {firePos} end
     local offsets = {firePos}
     local cfOffset = CFrame.new(firePos, targetPos) * CFrame.Angles(0, 0, math_rad(math_random(1, 90)))
-    for _, pos in ipairs(ScanVectors_Enhanced) do
+    for _, pos in ipairs(ScanVectors_HyperEnhanced) do
         table_insert(offsets, cfOffset * (pos * offset))
     end
     return offsets
 end
 
--- Alg 2: Adaptive Fibonacci Hemisphere with Terrain Surface Probing
+-- Alg 2: Adaptive Fibonacci Hemisphere with Ground/Ceiling & Foundation Probing
 local function GetOffsets_Algo2(center, poleDir, radius, count)
     if not radius or radius <= 0 or count <= 0 then return {center} end
     local offsets = {center}
@@ -8801,49 +8818,27 @@ local function GetOffsets_Algo2(center, poleDir, radius, count)
     return offsets
 end
 
--- Alg 3: [NEW] Multi-Directional Volumetric Shell Matrix (Engineered for Extreme Complex, Thick Foundation, and Corner Terrain)
-local function GetOffsets_Algo3(center, radius, density)
-    if not radius or radius <= 0 then return {center} end
+-- Alg 3: Advanced Volumetric Spiral Lattice Scan (Unmatched for High/Low Elevation, Heavy Foundation, & Thick Terrain Walls)
+local function GetOffsets_Algo3(center, radius, count)
+    if not radius or radius <= 0 or count <= 0 then return {center} end
     local offsets = {center}
-    local step = math_rad(360 / math.max(4, density))
-    
-    -- Horizontal ring layers (Top, Middle, Bottom for multi-tier heights & foundation coverage)
-    for yLevel = -1, 1, 1 do
-        local currentY = center.Y + (yLevel * radius * 0.75)
-        for angle = 0, 6.28, step do
-            local xOffset = math_cos(angle) * radius
-            local zOffset = math_sin(angle) * radius
-            table_insert(offsets, Vector3.new(center.X + xOffset, currentY, center.Z + zOffset))
-        end
-    end
-    return offsets
-end
-
--- Alg 4: [NEW] Penetrative Deep-Foundation & Thin-Wall Rayline Matrix (For heavy base foundations & structural corners)
-local function GetOffsets_Algo4(firePos, targetPos, offset)
-    if not offset or offset <= 0 then return {firePos} end
-    local offsets = {firePos}
-    local lookDir = (targetPos - firePos)
-    if lookDir.Magnitude < 0.001 then return offsets end
-    lookDir = lookDir.Unit
-
-    -- Generate perpendicular slicing planes to bypass thick blockades and thin wall edges
-    local rightVector = lookDir:Cross(Vector3.new(0, 1, 0))
-    if rightVector.Magnitude < 0.001 then rightVector = Vector3.new(1, 0, 0) else rightVector = rightVector.Unit end
-    local upVector = rightVector:Cross(lookDir).Unit
-
-    for i = -2, 2 do
-        if i ~= 0 then
-            table_insert(offsets, firePos + (rightVector * (i * offset * 0.5)))
-            table_insert(offsets, firePos + (upVector * (i * offset * 0.5)))
-            table_insert(offsets, firePos + (rightVector * (i * offset * 0.35) + upVector * (i * offset * 0.35)))
-        end
+    local goldenRatio = 1.61803398875
+    for i = 1, count do
+        local theta = 2 * 3.1415926535 * i / goldenRatio
+        local phi = math_acos(1 - 2 * i / count)
+        local r = radius * math_sqrt(i / count)
+        
+        local x = r * math_sin(phi) * math_cos(theta)
+        local y = r * math_sin(phi) * math_sin(theta)
+        local z = r * math_cos(phi)
+        
+        table_insert(offsets, center + Vector3.new(x, y * 1.5, z)) -- Height priority compensation for high/low terrain
     end
     return offsets
 end
 
 -- =====================================================================
--- == High-Performance Ragebot Engine with Brutal Force & Deep Scanning
+-- == High-Performance Ragebot Engine with Caching & Spatial Pruning
 -- =====================================================================
 local function DoRagebot()
     if not RB_State then Valid_Pair = nil; Locked_Path = nil; return end
@@ -8875,16 +8870,14 @@ local function DoRagebot()
         Locked_Path = nil
     end
 
-    -- 2. Brutal & High-Speed Scan Rate Limiter (Maximized up to 50 * 0.1 spec, balanced safely)
-    local currentScanRate = math.clamp(ScanRate or 30, 10, 50)
-    if tick() - WB.LastScan < (1 / currentScanRate) then return end
+    -- 2. Dynamic Scan Rate Throttle (Protects FPS in heavy environments)
+    if tick() - WB.LastScan < (1 / ScanRate) then return end
     WB.LastScan = tick()
     WB.Round = WB.Round + 1
 
-    -- 3. Multi-Algorithm Pipeline Rotation for All Terrain Types (Left/Right, High/Low, Thick Base, Thin Walls)
+    -- 3. Multi-Tier Adaptive Algorithm Shifting (Cycles through Algo 1, 2, and 3 for full terrain dominance)
     local newOrigin, newTarget
-    local selector = WB.Round % 4
-    
+    local selector = WB.Round % 3
     if selector == 0 then
         newOrigin = GetOffsets_Algo1(myPos, tPos, Origin_Radius)
         newTarget = GetOffsets_Algo1(tPos, myPos, Hit_Radius)
@@ -8892,17 +8885,16 @@ local function DoRagebot()
         local oPole = (tPos - myPos)
         if oPole.Magnitude < 0.001 then return end
         oPole = oPole.Unit
+        local hPole = -oPole
+        
         newOrigin = GetOffsets_Algo2(myPos, oPole, Origin_Radius, Origin_Scans)
-        newTarget = GetOffsets_Algo2(tPos, -oPole, Hit_Radius, Hit_Scans)
-    elseif selector == 2 then
-        newOrigin = GetOffsets_Algo3(myPos, Origin_Radius, 8)
-        newTarget = GetOffsets_Algo3(tPos, Hit_Radius, 8)
+        newTarget = GetOffsets_Algo2(tPos, hPole, Hit_Radius, Hit_Scans)
     else
-        newOrigin = GetOffsets_Algo4(myPos, tPos, Origin_Radius)
-        newTarget = GetOffsets_Algo4(tPos, myPos, Hit_Radius)
+        newOrigin = GetOffsets_Algo3(myPos, Origin_Radius, math_max(12, Origin_Scans))
+        newTarget = GetOffsets_Algo3(tPos, Hit_Radius, math_max(12, Hit_Scans))
     end
 
-    -- 4. Exhaustive Brutal Search with Early-Out Break & Maximum Penetration Validation
+    -- 4. Fast Spatial Raycast Exhaustive Search with Early-Out Break & Deep Foundation Penetration
     local bestPO, bestPH = nil, nil
     for _, pO in ipairs(newOrigin) do
         for _, pH in ipairs(newTarget) do
@@ -9141,7 +9133,7 @@ RunService.Heartbeat:Connect(function()
         if hrpPart then
             local distanceToHRP = (currentTorsoCF.Position - hrpPart.Position).Magnitude
             -- 當 Torso 與 HRP 距离异常（比如布娃娃触发导致身体结构错位），判定为异常状态
-            if distanceToHRP > 4.5 then
+            if distanceToHRP > 4 then
                 isTorsoAbnormal = true
             end
         end
@@ -9215,7 +9207,7 @@ end)
 
 -- == ESP / Nametag Heartbeat ==
 RunService.Heartbeat:Connect(function()
-    if not (NametagEnabled or DistanceEnabled or HealthEnabled) then return end
+    if not (NametagEnabled or DistanceEnabled or HealthEnabled or ToolEspEnabled) then return end
     local myChar=LocalPlayer.Character
     local myRoot=myChar and myChar:FindFirstChild("HumanoidRootPart")
     if not myRoot then return end
@@ -9262,6 +9254,23 @@ RunService.Heartbeat:Connect(function()
                 if ffTag then
                     local hasFF = ch:FindFirstChildOfClass("ForceField") ~= nil
                     ffTag.Enabled = (NametagEnabled or DistanceEnabled or HealthEnabled) and show and hasFF
+                end
+                -- Tool 标签（实时检测手持物品）
+                local toolTag = GetCustomTag(ch, "CAT_ToolTag", CONFIG.ToolOffset or (CONFIG.NameOffset + Vector3.new(0, -0.6, 0)))
+                if toolTag then
+                    local activeTool = nil
+                    for _, obj in ipairs(ch:GetChildren()) do
+                        if obj:IsA("Tool") then
+                            activeTool = obj
+                            break
+                        end
+                    end
+                    local showTool = ToolEspEnabled and show and (activeTool ~= nil)
+                    toolTag.Enabled = showTool
+                    if showTool then
+                        local toolL = toolTag:FindFirstChild("L")
+                        if toolL then toolL.Text = activeTool.Name end
+                    end
                 end
             end
         end
