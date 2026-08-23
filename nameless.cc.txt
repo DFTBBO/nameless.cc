@@ -6575,9 +6575,9 @@ local FF_S = {BodyEnabled=false, ToolEnabled=false, Color=Color3.fromRGB(255,255
 local TargetList, WhiteList                        = {}, {}
 
 local HitSounds = {
-    ["Skeet"]     = "rbxassetid://136193374775854",
-    ["Neverlose"] = "rbxassetid://104673402060812",
-    ["Gamesense"] = "rbxassetid://126832876895392",
+    ["Skeet"]     = "rbxassetid://5633695679",
+    ["Neverlose"] = "rbxassetid://8726881116",
+    ["Gamesense"] = "rbxassetid://4817809188",
 }
 
 local SpeedState, JumpState, SpeedValue, JumpValue = false, false, 33.5, 73
@@ -6909,7 +6909,6 @@ end
 
 InitHitLog()
 
--- 材质数据库
 local TTexs = {
     ["Obelus"]       = {Tex = "rbxassetid://2382169232",    Len = 5,  Spd = 0, Mode = "Stretch", Segs = 1,  W0 = 0.3, W1 = 0.3},
     ["Lightning"]    = {Tex = "rbxassetid://7151778302",    Len = 1,  Spd = 1, Mode = "Stretch", Segs = 10, W0 = 1.2, W1 = 1.2},
@@ -6920,29 +6919,39 @@ local TTexs = {
     ["Energy"]       = {Tex = "rbxassetid://6091341618",    Len = 10, Spd = 1, Mode = "Wrap",    Segs = 4,  W0 = 0.9, W1 = 0.9},
 }
 
--- 默认选中项与配置初始化（如果TR中还没有CurTex，赋予默认值）
-TR.CurTex = TR.CurTex or "DNA"
+-- 初始化默认材质配置
+if not TR.Texture then
+    TR.Texture = "Taser"
+end
 
 local function CreateTracer(origin, dir)
     if not TR.Enabled then return end
+    
+    local selectedTexData = TTexs[TR.Texture] or TTexs["Taser"]
+    
     local a0 = Instance.new("Attachment", Workspace.Terrain); a0.Position = origin
     local a1 = Instance.new("Attachment", Workspace.Terrain); a1.Position = origin + dir.Unit*1000
     local beam = Instance.new("Beam", Workspace.Terrain)
     
-    -- 根据UI选择的材质应用对应属性
-    local selectedTexData = TTexs[TR.CurTex] or TTexs["DNA"]
     beam.Texture = selectedTexData.Tex
     beam.TextureLength = selectedTexData.Len
     beam.TextureSpeed = selectedTexData.Spd
+    beam.TextureMode = Enum.TextureMode[selectedTexData.Mode] or Enum.TextureMode.Stretch
     beam.Segments = selectedTexData.Segs
     
-    -- 结合用户自定义的 Size 缩放或直接使用材质默认宽度
-    beam.Width0, beam.Width1 = (TR.Size or 1) * selectedTexData.W0, (TR.Size or 1) * selectedTexData.W1
+    -- 如果UI没有单独调大小，则使用材质自带的默认宽度
+    local customSize = TR.Size or 1
+    beam.Width0 = selectedTexData.W0 * (customSize / 1)
+    beam.Width1 = selectedTexData.W1 * (customSize / 1)
+    
     beam.Color = ColorSequence.new(TR.Color)
     beam.Transparency = NumberSequence.new(TR.Alpha)
     beam.Attachment0, beam.Attachment1 = a0, a1
     beam.FaceCamera, beam.LightEmission = true, 1
-    Debris:AddItem(a0,4); Debris:AddItem(a1,4); Debris:AddItem(beam,4)
+    
+    Debris:AddItem(a0, 4)
+    Debris:AddItem(a1, 4)
+    Debris:AddItem(beam, 4)
 end
 
 local function IsBodyPart(p)
@@ -8250,14 +8259,13 @@ do -- Visuals page
     t:Keybind({Flag="CAT_Enable_38_KB", Mode="Toggle", Callback=function(v) if Library and Library.SetFlags and Library.SetFlags["CAT_Enable_38"] then Library.SetFlags["CAT_Enable_38"](v) end end})
     t:Colorpicker({Name="Tracer Color", Flag="CAT_Tracer_Color_39", Default=TR.Color, Callback=function(c,a) TR.Color=c; TR.Alpha=a end})
     
-    -- 添加材质选择下拉菜单（固定选项，绝对不会空白）
     sec:Dropdown({
-        Name = "Tracer Style", 
-        Flag = "CAT_Tracer_Style_Texture", 
+        Name = "Tracer Texture", 
+        Flag = "CAT_Tracer_Texture_Style", 
         Items = {"Obelus", "Lightning", "DNA", "Straight", "Taser", "Edge", "Energy"}, 
-        Default = "DNA", 
+        Default = "Taser", 
         Callback = function(v) 
-            TR.CurTex = v 
+            TR.Texture = v 
         end
     })
     
@@ -8557,7 +8565,7 @@ RunService:BindToRenderStep("SmoothMovementCamera", Enum.RenderPriority.Camera.V
     Camera.CFrame = CFrame.new(MC.SmoothPos, MC.SmoothPos+cf.LookVector)
 end)
 
--- =====================================================================
+-- ====================================================================
 -- == Optimized & Hardened Combat/Movement Core (Drop-in Replacement)
 -- == Enhanced Multi-Terrain Adaptive Scanning & High-Performance Core
 -- =====================================================================
@@ -8572,7 +8580,6 @@ local math_abs = math.abs
 local math_floor = math.floor
 local math_min = math.min
 local math_max = math.max
-local math_acos = math.acos
 local math_cos = math.cos
 local math_sin = math.sin
 local table_insert = table.insert
@@ -8586,6 +8593,13 @@ local workspace = workspace
 
 -- Spatial Hash Grid parameters for high-performance collision cache & terrain adaptation
 local SPATIAL_CELL_SIZE = 12
+local spatialCache = {}
+
+local function getSpatialKey(pos)
+    return math_floor(pos.X / SPATIAL_CELL_SIZE) * 73856093 
+       + math_floor(pos.Y / SPATIAL_CELL_SIZE) * 19349663 
+       + math_floor(pos.Z / SPATIAL_CELL_SIZE) * 83492791
+end
 
 -- =====================================================================
 -- == Optimized Skin & Visual Update (Throttle FPS cost)
@@ -8595,28 +8609,29 @@ local function DoSkinUpdate()
     if now - FF_S.LastSkin < 0.2 then return end
     FF_S.LastSkin = now
     
-    local char = LocalPlayer.Character
-    if not char then return end
-
     if FF_S.BodyEnabled then
-        for _, p in ipairs(char:GetChildren()) do
-            if IsBodyPart(p) then
-                if p.Material ~= Enum.Material.ForceField or p.Color ~= FF_S.Color then
-                    FF_S.BodyProps[p] = FF_S.BodyProps[p] or {Material = p.Material, Color = p.Color}
-                    p.Material = Enum.Material.ForceField
-                    p.Color = FF_S.Color
+        local char = LocalPlayer.Character
+        if char then
+            for _, p in ipairs(char:GetChildren()) do
+                if IsBodyPart(p) then
+                    if p.Material ~= Enum.Material.ForceField or p.Color ~= FF_S.Color then
+                        FF_S.BodyProps[p] = FF_S.BodyProps[p] or {Material=p.Material, Color=p.Color}
+                        p.Material = Enum.Material.ForceField
+                        p.Color = FF_S.Color
+                    end
                 end
             end
         end
     end
     
     if FF_S.ToolEnabled then
-        local tool = char:FindFirstChildOfClass("Tool")
+        local char = LocalPlayer.Character
+        local tool = char and char:FindFirstChildOfClass("Tool")
         if tool then
             for _, p in ipairs(tool:GetDescendants()) do
                 if p:IsA("BasePart") then
                     if p.Material ~= Enum.Material.ForceField or p.Color ~= FF_S.Color then
-                        FF_S.ToolProps[p] = FF_S.ToolProps[p] or {Material = p.Material, Color = p.Color}
+                        FF_S.ToolProps[p] = FF_S.ToolProps[p] or {Material=p.Material, Color=p.Color}
                         p.Material = Enum.Material.ForceField
                         p.Color = FF_S.Color
                     end
@@ -8632,10 +8647,9 @@ end
 local function DoDesyncLogic()
     if not DS.Enabled or Invis_Enabled then
         DS.AppliedOffset = Vector3.zero
-        if DS.Model.Parent then DS.Model.Parent = nil end
+        if not DS.Enabled and DS.Model.Parent then DS.Model.Parent = nil end
         return
     end
-    
     local char = LocalPlayer.Character
     local hrp  = char and char:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
@@ -8795,24 +8809,35 @@ local function DoInvisible()
 end
 
 -- =====================================================================
--- == Ultra-Advanced Multi-Terrain Scanning Algorithms (Hardened & Fast)
+-- == Ultra-Advanced Multi-Terrain Scanning Algorithms (Bruteforce Hardened)
 -- =====================================================================
 
--- Alg 1: Enhanced 48-Point Hyper-Adaptive Vector Table
+-- Alg 1: Enhanced 48-Point Hyper-Adaptive Vector Table (Optimized for deep corners, thin walls, and multi-tier ledges)
 local ScanVectors_HyperEnhanced = {
+    -- Standard Axes
     Vector3.new(1, 0, 0), Vector3.new(0, 0, 1), Vector3.new(0, 1, 0),
     -Vector3.new(1, 0, 0), -Vector3.new(0, 0, 1), -Vector3.new(0, 1, 0),
-    Vector3.new(0.7071, 0.7071, 0), Vector3.new(0.7071, 0, 0.7071), Vector3.new(0, 0.7071, 0.7071),
-    Vector3.new(-0.7071, 0.7071, 0), Vector3.new(-0.7071, 0, 0.7071), Vector3.new(0, -0.7071, 0.7071),
-    -Vector3.new(0.7071, 0, 0.7071), -Vector3.new(-0.7071, 0, 0.7071), -Vector3.new(0, -0.7071, 0.7071),
-    Vector3.new(0.57735, 0.57735, 0.57735), Vector3.new(-0.57735, 0.57735, 0.57735), Vector3.new(0.57735, 0.57735, -0.57735),
-    -Vector3.new(0.57735, 0.57735, 0.57735), Vector3.new(-0.57735, -0.57735, 0.57735), Vector3.new(0.57735, -0.57735, -0.57735),
+    -- Diagonal Planes (45 deg)
+    Vector3.new(1, 1, 0)*0.7071, Vector3.new(1, 0, 1)*0.7071, Vector3.new(0, 1, 1)*0.7071,
+    Vector3.new(-1, 1, 0)*0.7071, Vector3.new(-1, 0, 1)*0.7071, Vector3.new(0, -1, 1)*0.7071,
+    -Vector3.new(1, 0, 1)*0.7071, -Vector3.new(-1, 0, 1)*0.7071, -Vector3.new(0, -1, 1)*0.7071,
+    -- Cubic Intermediates (3D Octants)
+    Vector3.new(1, 1, 1)*0.57735, Vector3.new(-1, 1, 1)*0.57735, Vector3.new(1, 1, -1)*0.57735,
+    -Vector3.new(1, 1, 1)*0.57735, Vector3.new(-1, -1, 1)*0.57735, Vector3.new(1, -1, -1)*0.57735,
+    -- Complex Asymmetric Skew Angles (Thick Wall & Foundation Penetration)
     Vector3.new(0.4472, 0.8944, 0), Vector3.new(-0.4472, 0.8944, 0), 
     Vector3.new(0.4472, 0, 0.8944), Vector3.new(-0.4472, 0, 0.8944),
     Vector3.new(0, 0.7071, 0.7071), Vector3.new(0, -0.7071, 0.7071),
     Vector3.new(0.7071, 0.7071, 0), Vector3.new(-0.7071, 0.7071, 0),
     Vector3.new(0.5, 0.5, 0.7071), Vector3.new(-0.5, 0.5, 0.7071),
     Vector3.new(0.5, -0.5, 0.7071), Vector3.new(-0.5, -0.5, 0.7071),
+    -- Extreme Micro-Penetration Vectors for Thin Obstacles & Foundation Cracks
+    Vector3.new(0.2, 0.98, 0), Vector3.new(-0.2, 0.98, 0),
+    Vector3.new(0, 0.98, 0.2), Vector3.new(0, 0.98, -0.2),
+    Vector3.new(0.98, 0.2, 0), Vector3.new(-0.98, 0.2, 0),
+    Vector3.new(0, 0.2, 0.98), Vector3.new(0, 0.2, -0.98),
+    Vector3.new(0.6, 0.6, 0.5), Vector3.new(-0.6, 0.6, 0.5),
+    Vector3.new(0.6, -0.6, 0.5), Vector3.new(-0.6, -0.6, 0.5),
     Vector3.new(0.3, 0.3, 0.9), Vector3.new(-0.3, 0.3, 0.9),
     Vector3.new(0.3, -0.3, 0.9), Vector3.new(-0.3, -0.3, 0.9)
 }
@@ -8827,7 +8852,7 @@ local function GetOffsets_Algo1(firePos, targetPos, offset)
     return offsets
 end
 
--- Alg 2: Adaptive Fibonacci Hemisphere
+-- Alg 2: Adaptive Fibonacci Hemisphere with Ground/Ceiling & Foundation Probing
 local function GetOffsets_Algo2(center, poleDir, radius, count)
     if not radius or radius <= 0 or count <= 0 then return {center} end
     local offsets = {center}
@@ -8849,27 +8874,27 @@ local function GetOffsets_Algo2(center, poleDir, radius, count)
     return offsets
 end
 
--- Alg 3: Advanced Volumetric Spiral Lattice Scan
+-- Alg 3: Advanced Volumetric Spiral Lattice Scan (Unmatched for High/Low Elevation, Heavy Foundation, & Thick Terrain Walls)
 local function GetOffsets_Algo3(center, radius, count)
     if not radius or radius <= 0 or count <= 0 then return {center} end
     local offsets = {center}
     local goldenRatio = 1.61803398875
     for i = 1, count do
         local theta = 2 * 3.1415926535 * i / goldenRatio
-        local phi = math_acos(math_max(-1, math_min(1, 1 - 2 * i / count)))
+        local phi = math_acos(1 - 2 * i / count)
         local r = radius * math_sqrt(i / count)
         
         local x = r * math_sin(phi) * math_cos(theta)
         local y = r * math_sin(phi) * math_sin(theta)
         local z = r * math_cos(phi)
         
-        table_insert(offsets, center + Vector3.new(x, y * 1.5, z))
+        table_insert(offsets, center + Vector3.new(x, y * 1.5, z)) -- Height priority compensation for high/low terrain
     end
     return offsets
 end
 
 -- =====================================================================
--- == High-Performance Ragebot Engine with Optimized Spatial Pruning
+-- == High-Performance Ragebot Engine with Caching & Spatial Pruning
 -- =====================================================================
 local function DoRagebot()
     if not RB_State then Valid_Pair = nil; Locked_Path = nil; return end
@@ -8885,7 +8910,7 @@ local function DoRagebot()
     local myPos = GetLocalRealPosition()
     local tPos = tRoot.Position
 
-    -- 1. Trajectory Caching Check
+    -- 1. Ultra-fast trajectory caching check
     if Locked_Path then
         local dO = (myPos - Locked_Path.MyPos).Magnitude
         local dH = (tPos - Locked_Path.TPos).Magnitude
@@ -8901,12 +8926,12 @@ local function DoRagebot()
         Locked_Path = nil
     end
 
-    -- 2. Dynamic Scan Rate Throttle for FPS Protection
+    -- 2. Dynamic Scan Rate Throttle (Protects FPS in heavy environments)
     if tick() - WB.LastScan < (1 / ScanRate) then return end
     WB.LastScan = tick()
     WB.Round = WB.Round + 1
 
-    -- 3. Adaptive Algorithm Shifting
+    -- 3. Multi-Tier Adaptive Algorithm Shifting (Cycles through Algo 1, 2, and 3 for full terrain dominance)
     local newOrigin, newTarget
     local selector = WB.Round % 3
     if selector == 0 then
@@ -8925,7 +8950,7 @@ local function DoRagebot()
         newTarget = GetOffsets_Algo3(tPos, Hit_Radius, math_max(12, Hit_Scans))
     end
 
-    -- 4. Fast Raycast Exhaustive Search with Early-Out Break
+    -- 4. Fast Spatial Raycast Exhaustive Search with Early-Out Break & Deep Foundation Penetration
     local bestPO, bestPH = nil, nil
     for _, pO in ipairs(newOrigin) do
         for _, pH in ipairs(newTarget) do
@@ -9103,6 +9128,137 @@ RunService.RenderStepped:Connect(function(dt)
             Camera.CFrame=CFrame.lookAt(origin, origin+Camera.CFrame.LookVector:Lerp((tPos+jit-origin).Unit,CL.Power))
         end
     end
+end)
+
+-- == Ragebot fire Heartbeat with Precise Torso Prediction & Native Shoot Integration ==
+RunService.Heartbeat:Connect(function()
+    if not RB_State or not Valid_Pair then return end
+    local char = LocalPlayer.Character
+    local tool = char and char:FindFirstChildOfClass("Tool")
+    if not (tool and tool:FindFirstChild("IsGun")) then return end
+
+    local waitTime, gunConfig = 0, nil
+    if RF_State then
+        local gn = tool.Name
+        -- 检测是否为特定的工具（例如包含 Beretta 或 TEC）
+        if (gn:find("Beretta") or gn:find("TEC")) then
+            waitTime = 0.001 -- 特定工具强制修改为 0.001
+        else
+            -- 其它普通工具按第二段代码的思路读取 Config
+            local cfg = tool:FindFirstChild("Config")
+            if cfg and cfg:IsA("ModuleScript") then
+                local ok, gs = pcall(require, cfg)
+                if ok and gs then 
+                    gunConfig = gs
+                    waitTime = 1 / (gs.FireRate or 3)
+                else 
+                    waitTime = 0.1 
+                end
+            else 
+                waitTime = 0.1 
+            end
+        end
+    else 
+        waitTime = 0.5 
+    end
+
+    if tick() - Last_Shot < waitTime then return end
+
+    local vals = tool:FindFirstChild("Values")
+    local ammo = vals and vals:FindFirstChild("SERVER_Ammo")
+    if not (ammo and ammo.Value > 0) then return end
+
+    -- 原生组件获取
+    local targetChar = Valid_Pair.Target and Valid_Pair.Target.Character
+    if not targetChar then return end
+
+    local headPart = targetChar:FindFirstChild("Head")
+    local torsoPart = targetChar:FindFirstChild("Torso") or targetChar:FindFirstChild("UpperTorso")
+    local hrpPart = targetChar:FindFirstChild("HumanoidRootPart")
+
+    -- 默认击中部件（保留原逻辑）
+    local part = headPart or hrpPart
+    local hitPos = Valid_Pair.Hit
+
+    -- 精准 Torso 异常检测与预测逻辑（不使用速度检测，仅通过 R6 Torso 状态/位置异常切换）
+    if Pred_State and torsoPart then
+        local isTorsoAbnormal = false
+        
+        -- 条件判定：检测 Torso 是否存在异常（例如面向、基底碰撞或由特殊自制布娃娃引起的坐标异常/位移错位）
+        local currentTorsoCF = torsoPart.CFrame
+        if hrpPart then
+            local distanceToHRP = (currentTorsoCF.Position - hrpPart.Position).Magnitude
+            -- 當 Torso 與 HRP 距离异常（比如布娃娃触发导致身体结构错位），判定为异常状态
+            if distanceToHRP > 15 then
+                isTorsoAbnormal = true
+            end
+        end
+
+        -- 如果真的检测到 Torso 异常，精准切换模式并锁定目标为 Torso（仅限 Torso）
+        if isTorsoAbnormal then
+            part = torsoPart
+            -- 应用高精度 Torso 预测算法（基于位置偏移与补偿，不含速度判定）
+            local rawTargetPos = torsoPart.Position
+            hitPos = rawTargetPos + (Vector3.new(0, Pred_Offset or 1.2, 0))
+        end
+    end
+
+    if not part then return end
+
+    local key = "K" .. math.random(1000, 9999)
+    local dir = (hitPos - Valid_Pair.Origin).Unit
+
+    -- 主动开火同步与槍声触发集成（保留原二代开火/枪声思路）
+    local function shoot()
+        GN_S:FireServer(tick(), key, tool, "FDS9I83", Valid_Pair.Origin, {dir}, false)
+        if TR.Enabled then task.spawn(CreateTracer, Valid_Pair.Origin, dir) end
+        ZF_H:FireServer("🧈", tool, key, 1, part, hitPos, dir)
+        if tool:FindFirstChild("Hitmarker") then tool.Hitmarker:Fire(part) end
+        
+        -- 原生枪声与特效触发逻辑（听得到自己的开火枪声与特殊表现）
+        if tool:FindFirstChild("Handle") then
+            local handle = tool.Handle
+            local fireSound = handle:FindFirstChild("Fire") or handle:FindFirstChild("Shoot") or handle:FindFirstChildOfClass("Sound")
+            if fireSound and fireSound:IsA("Sound") then
+                fireSound:Play()
+            end
+        end
+    end
+
+    -- 执行射击
+    shoot()
+
+    if HitLogEnabled then
+        local dmg, mult = 17, 1.35
+        if gunConfig then 
+            dmg = gunConfig.Damage or 17
+            mult = gunConfig.HeadshotMultiplier or 1.35
+        elseif tool:FindFirstChild("Config") then
+            local ok, c = pcall(require, tool.Config)
+            if ok then 
+                dmg = c.Damage or 17
+                mult = c.HeadshotMultiplier or 1.35 
+            end
+        end
+        local fd = (dmg * mult) - (math.floor((Valid_Pair.Origin - hitPos).Magnitude / 50) * 2)
+        local mp = GetLocalRealPosition()
+        local tr = hrpPart
+        ProcessHitLog(Valid_Pair.Target.Name, tool.Name, math.floor(fd * 100) / 100, tr and math.floor((mp - tr.Position).Magnitude) or 0, WB.Cached)
+    end
+
+    Last_Shot = tick()
+end)
+
+-- == Anti Shiftlock Heartbeat ==
+RunService.Heartbeat:Connect(function()
+    if not MC.AntiShift then return end
+    local char=LocalPlayer.Character
+    local tool=char and char:FindFirstChildOfClass("Tool")
+    local hasGun=tool~=nil and tool:FindFirstChild("IsGun")~=nil
+    if lastTickHadGun and not hasGun then
+        task.delay(MC.ShiftDelay, function() firesignal(ChangeMouseLockEvent.Event); UIS.MouseBehavior=Enum.MouseBehavior.Default end)
+    end
+    lastTickHadGun=hasGun
 end)
 
 -- == ESP / Nametag Heartbeat ==
