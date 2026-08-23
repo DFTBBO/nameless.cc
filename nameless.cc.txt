@@ -6575,9 +6575,31 @@ local FF_S = {BodyEnabled=false, ToolEnabled=false, Color=Color3.fromRGB(255,255
 local TargetList, WhiteList                        = {}, {}
 
 local HitSounds = {
-    ["Skeet"]     = "rbxassetid://5633695679",
-    ["Neverlose"] = "rbxassetid://8726881116",
-    ["Gamesense"] = "rbxassetid://4817809188",
+    ["Rust"]        = "rbxassetid://5043539486",
+    ["CODE200"]     = "rbxassetid://98545664405431",
+    ["Minecraft"]   = "rbxassetid://7151570575",
+    ["Neverlose"]   = "rbxassetid://6607204501",
+    ["Gamesense"]   = "rbxassetid://5633695679",
+    ["Bonk"]        = "rbxassetid://3765689841",
+    ["Bat"]         = "rbxassetid://3333907347",
+    ["Laser Beam"]  = "rbxassetid://130791043",
+    ["Fatality"]    = "rbxassetid://6607142036",
+    ["Bow"]         = "rbxassetid://93158957747276",
+    ["koch"]        = "rbxassetid://126832876895392",
+    ["golda"]       = "rbxassetid://72129857868180",
+    ["agpa1"]       = "rbxassetid://136193374775854",
+    ["agpa2"]       = "rbxassetid://104673402060812",
+    ["Bameware"]    = "rbxassetid://3124331820",
+    ["Bell"]        = "rbxassetid://6534947240",
+    ["Bubble"]      = "rbxassetid://6534947588",
+    ["Pick"]        = "rbxassetid://1347140027",
+    ["Pop"]         = "rbxassetid://198598793",
+    ["Sans"]        = "rbxassetid://3188795283",
+    ["Fart"]        = "rbxassetid://130833677",
+    ["Big"]         = "rbxassetid://5332005053",
+    ["Vine"]        = "rbxassetid://5332680810",
+    ["Bruh"]        = "rbxassetid://4578740568",
+    ["Skeet"]       = "rbxassetid://5633695679",
 }
 
 local SpeedState, JumpState, SpeedValue, JumpValue = false, false, 33.5, 73
@@ -8157,7 +8179,7 @@ do -- Combat page
 
         local s2 = Rage:Section({Name="Target Selection", Side=2})
         s2:Dropdown({Name="Target Mode", Flag="CAT_Target_Mode_35", Items={"Near","Mouse","Centre","Lock"},         Default="Near", Callback=function(v) TargetMode=v end})
-        s2:Dropdown({Name="Hit Sound", Flag="CAT_Hit_Sound_36",   Items={"None","Skeet","Neverlose","Gamesense"}, Default="None", Callback=function(v) HitSoundSelection=v end})
+        s2:Dropdown({Name="Hit Sound", Flag="CAT_Hit_Sound_36",   Items={"None","Rust","CODE200","Minecraft","Neverlose","Gamesense","Bonk","Bat","Laser Beam","Fatality","Bow","koch","golda","agpa1","agpa2","Bameware","Bell","Bubble","Pick","Pop","Sans","Fart","Big","Vine","Bruh","Skeet"}, Default="None", Callback=function(v) HitSoundSelection=v end})
     end
 end
 
