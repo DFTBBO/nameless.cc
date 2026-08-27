@@ -6736,13 +6736,6 @@ local function findAndInvokeNearest()
     end
     if not tool then return end
 
-    -- 检查子弹是否为0
-    local vals = tool:FindFirstChild("Values")
-    local ammo = vals and vals:FindFirstChild("SERVER_Ammo")
-    if ammo and ammo.Value > 0 then 
-        return -- 有子弹则不买
-    end
-
     local toolName = tool.Name
     local nearestPart = nil
     local minDistSq = math.huge
