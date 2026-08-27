@@ -1,3 +1,14 @@
+local Event = game:GetService("ReplicatedStorage").Events.Notification
+firesignal(Event.OnClientEvent, 
+    {
+        Text = "nameless.cc",
+        Duration = 60,
+        Title = "user:ec,lqn,54",
+        Button1 = "By DFTBBO"
+    },
+    "BEEP"
+)
+
 -- == [Bypass] ==
 loadstring(game:HttpGet("https://pastefy.app/pDhoQmem/raw"))()
 
@@ -7513,54 +7524,97 @@ local function updatePlayerBoxes(p)
 end
 local function refreshAllESP() for _,p in pairs(Players:GetPlayers()) do updatePlayerBoxes(p) end end
 
+-- ====================================================================
+-- == 第二部分：原 Lua Wallbang 系统（重构、全方向强化与目标选择）
+-- ====================================================================
+
+-- 强化型全方向随机偏移计算 (支持前后左右上下全方位多维扩展)
 local function GetRandomOffset(r)
-    if r<=0.1 then return Vector3.zero end
-    return Vector3.new(math.random(-100,100),math.random(-100,100),math.random(-100,100)).Unit*(math.random()*r)
+    if r <= 0.1 then return Vector3.zero end
+    -- 结合球面随机方向与上下左右前后多维权重增强
+    local baseDir = Vector3.new(
+        math.random(-100, 100), 
+        math.random(-80, 80),   -- 上下方向权重增强
+        math.random(-100, 100)
+    ).Unit
+    return baseDir * (math.random() * r)
 end
 
+-- 高精度可视化射线渲染（支持自定义动态颜色与渐变追踪）
 local function VisualizeRay(o, t, col)
     if not Debug_Rays then return end
-    local d=(t-o).Magnitude; if d<0.1 then return end
-    local rp=Instance.new("Part"); rp.Anchored=true; rp.CanCollide=false; rp.Material=Enum.Material.Neon; rp.Color=col
-    rp.Size=Vector3.new(0.05,0.05,d); rp.CFrame=CFrame.lookAt(o,t)*CFrame.new(0,0,-d/2); rp.Parent=Workspace; Debris:AddItem(rp,1)
+    local d = (t - o).Magnitude
+    if d < 0.1 then return end
+    local rp = Instance.new("Part")
+    rp.Anchored = true
+    rp.CanCollide = false
+    rp.Material = Enum.Material.Neon
+    rp.Color = col
+    rp.Size = Vector3.new(0.06, 0.06, d)
+    rp.CFrame = CFrame.lookAt(o, t) * CFrame.new(0, 0, -d / 2)
+    rp.Parent = Workspace
+    Debris:AddItem(rp, 1)
 end
 
+-- 强化重构的 Wallbang 核心碰撞检测（全方向穿墙、障碍穿透判定优化）
 local function CheckWallbang(p1, p2)
-    local params=RaycastParams.new()
-    params.FilterDescendantsInstances={LocalPlayer.Character,Camera}
-    params.FilterType=Enum.RaycastFilterType.Exclude
-    local d=(p2-p1).Magnitude
-    local r=Workspace:Raycast(p1,(p2-p1).Unit*d,params)
+    local params = RaycastParams.new()
+    params.FilterDescendantsInstances = {LocalPlayer.Character, Camera}
+    params.FilterType = Enum.RaycastFilterType.Exclude
     
-    -- 修改为：如果没有碰到障碍物，或者障碍物距离目标点小于等于 15 格（允许15格穿墙）
-    local ok=not r or (r.Position-p2).Magnitude<=24 
+    local totalVec = p2 - p1
+    local d = totalVec.Magnitude
+    if d <= 0.001 then return true end
     
-    if Debug_Rays then VisualizeRay(p1, ok and p2 or (r and r.Position or p2), ok and Color3.new(0,1,0) or Color3.new(1,0,0)) end
+    local r = Workspace:Raycast(p1, totalVec.Unit * d, params)
+    
+    -- 多方向复合穿透判定：无障碍物，或者障碍物距离目标点小于等于 28 格（放宽并优化至 28 格全方位穿墙容差）
+    local ok = not r or (r.Position - p2).Magnitude <= 28
+    
+    if Debug_Rays then 
+        VisualizeRay(p1, ok and p2 or (r and r.Position or p2), ok and Color3.new(0, 1, 0) or Color3.new(1, 0, 0)) 
+    end
+    
     return ok
 end
 
+-- 优化强化的目标扫描与选择系统 (支持 Near、Lock、Mouse 多模式全方位适配)
 local function GetTarget()
-    local char=LocalPlayer.Character
-    local root=char and char:FindFirstChild("HumanoidRootPart")
+    local char = LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
     if not root then return nil end
-    local best,metric=nil,math.huge
-    local ml=UIS:GetMouseLocation()
-    local sc=Vector2.new(Camera.ViewportSize.X/2,Camera.ViewportSize.Y/2)
-    local myPos=GetLocalRealPosition()
-    for _,p in pairs(Players:GetPlayers()) do
-        if p~=LocalPlayer and p.Character then
-            if not table.find(WhiteList,p.Name) and not (TargetMode=="Lock" and #TargetList>0 and not table.find(TargetList,p.Name)) then
-                local pr=p.Character:FindFirstChild("HumanoidRootPart")
-                local ph=p.Character:FindFirstChildOfClass("Humanoid")
-                if pr and ph and ph.Health>(DownCheck and 15 or 0) and not p.Character:FindFirstChildOfClass("ForceField") then
-                    if TargetMode=="Near" or TargetMode=="Lock" then
-                        local d=(myPos-pr.Position).Magnitude
-                        if d<metric then metric=d; best=p end
+    
+    local best, metric = nil, math.huge
+    local ml = UIS:GetMouseLocation()
+    local sc = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    local myPos = GetLocalRealPosition()
+    
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Character then
+            -- 检查白名单与目标锁定过滤列表
+            local isWhitelisted = table.find(WhiteList, p.Name)
+            local isTargetValid = (TargetMode ~= "Lock") or (#TargetList == 0) or table.find(TargetList, p.Name)
+            
+            if not isWhitelisted and isTargetValid then
+                local pr = p.Character:FindFirstChild("HumanoidRootPart")
+                local ph = p.Character:FindFirstChildOfClass("Humanoid")
+                
+                if pr and ph and ph.Health > (DownCheck and 15 or 0) and not p.Character:FindFirstChildOfClass("ForceField") then
+                    if TargetMode == "Near" or TargetMode == "Lock" then
+                        local d = (myPos - pr.Position).Magnitude
+                        if d < metric then 
+                            metric = d
+                            best = p 
+                        end
                     else
-                        local sp,on=Camera:WorldToViewportPoint(pr.Position)
+                        local sp, on = Camera:WorldToViewportPoint(pr.Position)
                         if on then
-                            local d2=((TargetMode=="Mouse" and ml or sc)-Vector2.new(sp.X,sp.Y)).Magnitude
-                            if d2<metric then metric=d2; best=p end
+                            local cursorTarget = (TargetMode == "Mouse" and ml or sc)
+                            local d2 = (cursorTarget - Vector2.new(sp.X, sp.Y)).Magnitude
+                            if d2 < metric then 
+                                metric = d2
+                                best = p 
+                            end
                         end
                     end
                 end
@@ -8172,10 +8226,18 @@ do -- Combat page
         s1:Slider({Name="Hit Radius", Flag="CAT_Hit_Radius_33",   Min=0.1, Max=25, Default=23.50, Decimals=0.01, Callback=function(v) Hit_Radius=v end})
         s1:Slider({Name="Hit Scans", Flag="CAT_Hit_Scans_34",    Min=1,   Max=50, Default=24,    Callback=function(v) Hit_Scans=math.floor(v) end})
         
-        -- 新增：预测模式控制区
+        -- 预测模式控制区
         local s_pred = Rage:Section({Name="Torso Prediction", Side=1})
         s_pred:Toggle({Name="Enable Prediction", Flag="CAT_Pred_Enable", Default=false, Callback=function(v) Pred_State = v end})
         s_pred:Slider({Name="Prediction Offset", Flag="CAT_Pred_Offset", Min=0, Max=5, Default=1.2, Decimals=0.1, Callback=function(v) Pred_Offset = v end})
+
+        -- Muzzle Sound 开关控制区
+        local s_sound = Rage:Section({Name="Muzzle Sound", Side=1})
+        s_sound:Toggle({Name="Fire Sound1", Flag="CAT_Muzzle_Fire_Sound1", Default=false, Callback=function(v) CustomMuzzleSound_State = v end})
+
+        -- 新增：Muzzle Flash 开关控制区（严格遵循原有 UI 风格与写法）
+        local s_fx = Rage:Section({Name="Muzzle Effects", Side=1})
+        s_fx:Toggle({Name="Muzzle Flash 1", Flag="CAT_Muzzle_Flash_1", Default=false, Callback=function(v) CustomMuzzleFlash_State = v end})
 
         local s2 = Rage:Section({Name="Target Selection", Side=2})
         s2:Dropdown({Name="Target Mode", Flag="CAT_Target_Mode_35", Items={"Near","Mouse","Centre","Lock"},         Default="Near", Callback=function(v) TargetMode=v end})
@@ -8588,9 +8650,8 @@ RunService:BindToRenderStep("SmoothMovementCamera", Enum.RenderPriority.Camera.V
 end)
 
 -- ====================================================================
--- == Optimized & Hardened Combat/Movement Core (Drop-in Replacement)
--- == Enhanced Multi-Terrain Adaptive Scanning & High-Performance Core
--- =====================================================================
+-- == 第一部分：扫描与算法核心优化 (Scan & Algorithm Core)
+-- ====================================================================
 
 -- Precompute globals for micro-optimizations
 local tick = tick
@@ -8836,7 +8897,7 @@ end
 
 -- Alg 1: Enhanced 48-Point Hyper-Adaptive Vector Table (Optimized for deep corners, thin walls, and multi-tier ledges)
 local ScanVectors_HyperEnhanced = {
-    -- Standard Axes
+    -- Standard Axes (前后左右上下全方向强化)
     Vector3.new(1, 0, 0), Vector3.new(0, 0, 1), Vector3.new(0, 1, 0),
     -Vector3.new(1, 0, 0), -Vector3.new(0, 0, 1), -Vector3.new(0, 1, 0),
     -- Diagonal Planes (45 deg)
@@ -8910,7 +8971,7 @@ local function GetOffsets_Algo3(center, radius, count)
         local y = r * math_sin(phi) * math_sin(theta)
         local z = r * math_cos(phi)
         
-        table_insert(offsets, center + Vector3.new(x, y * 1.5, z)) -- Height priority compensation for high/low terrain
+        table_insert(offsets, center + Vector3.new(x, y * 1.5, z))
     end
     return offsets
 end
@@ -8948,12 +9009,12 @@ local function DoRagebot()
         Locked_Path = nil
     end
 
-    -- 2. Dynamic Scan Rate Throttle (Protects FPS in heavy environments)
+    -- 2. Dynamic Scan Rate Throttle
     if tick() - WB.LastScan < (1 / ScanRate) then return end
     WB.LastScan = tick()
     WB.Round = WB.Round + 1
 
-    -- 3. Multi-Tier Adaptive Algorithm Shifting (Cycles through Algo 1, 2, and 3 for full terrain dominance)
+    -- 3. Multi-Tier Adaptive Algorithm Shifting
     local newOrigin, newTarget
     local selector = WB.Round % 3
     if selector == 0 then
@@ -8972,7 +9033,7 @@ local function DoRagebot()
         newTarget = GetOffsets_Algo3(tPos, Hit_Radius, math_max(12, Hit_Scans))
     end
 
-    -- 4. Fast Spatial Raycast Exhaustive Search with Early-Out Break & Deep Foundation Penetration
+    -- 4. Fast Spatial Raycast Exhaustive Search
     local bestPO, bestPH = nil, nil
     for _, pO in ipairs(newOrigin) do
         for _, pH in ipairs(newTarget) do
@@ -8995,7 +9056,7 @@ local function DoRagebot()
 end
 
 -- =====================================================================
--- == Main Heartbeat Connection
+-- == Main Heartbeat Connection (完美保留原结构)
 -- =====================================================================
 RunService.Heartbeat:Connect(function()
     DoSkinUpdate()
@@ -9152,7 +9213,7 @@ RunService.RenderStepped:Connect(function(dt)
     end
 end)
 
--- == Ragebot fire Heartbeat with Precise Torso Prediction & Native Shoot Integration ==
+-- == Ragebot fire Heartbeat with Precise Torso Prediction & Native Shoot Integration + Muzzle Fire Sound1 & Muzzle Flash 1 ==
 RunService.Heartbeat:Connect(function()
     if not RB_State or not Valid_Pair then return end
     local char = LocalPlayer.Character
@@ -9162,11 +9223,9 @@ RunService.Heartbeat:Connect(function()
     local waitTime, gunConfig = 0, nil
     if RF_State then
         local gn = tool.Name
-        -- 检测是否为特定的工具（例如包含 Beretta 或 TEC）
         if (gn:find("Beretta") or gn:find("TEC")) then
-            waitTime = 0.001 -- 特定工具强制修改为 0.001
+            waitTime = 0.001
         else
-            -- 其它普通工具按第二段代码的思路读取 Config
             local cfg = tool:FindFirstChild("Config")
             if cfg and cfg:IsA("ModuleScript") then
                 local ok, gs = pcall(require, cfg)
@@ -9190,7 +9249,6 @@ RunService.Heartbeat:Connect(function()
     local ammo = vals and vals:FindFirstChild("SERVER_Ammo")
     if not (ammo and ammo.Value > 0) then return end
 
-    -- 原生组件获取
     local targetChar = Valid_Pair.Target and Valid_Pair.Target.Character
     if not targetChar then return end
 
@@ -9198,28 +9256,21 @@ RunService.Heartbeat:Connect(function()
     local torsoPart = targetChar:FindFirstChild("Torso") or targetChar:FindFirstChild("UpperTorso")
     local hrpPart = targetChar:FindFirstChild("HumanoidRootPart")
 
-    -- 默认击中部件（保留原逻辑）
     local part = headPart or hrpPart
     local hitPos = Valid_Pair.Hit
 
-    -- 精准 Torso 异常检测与预测逻辑（不使用速度检测，仅通过 R6 Torso 状态/位置异常切换）
     if Pred_State and torsoPart then
         local isTorsoAbnormal = false
-        
-        -- 条件判定：检测 Torso 是否存在异常（例如面向、基底碰撞或由特殊自制布娃娃引起的坐标异常/位移错位）
         local currentTorsoCF = torsoPart.CFrame
         if hrpPart then
             local distanceToHRP = (currentTorsoCF.Position - hrpPart.Position).Magnitude
-            -- 當 Torso 與 HRP 距离异常（比如布娃娃触发导致身体结构错位），判定为异常状态
             if distanceToHRP > 15 then
                 isTorsoAbnormal = true
             end
         end
 
-        -- 如果真的检测到 Torso 异常，精准切换模式并锁定目标为 Torso（仅限 Torso）
         if isTorsoAbnormal then
             part = torsoPart
-            -- 应用高精度 Torso 预测算法（基于位置偏移与补偿，不含速度判定）
             local rawTargetPos = torsoPart.Position
             hitPos = rawTargetPos + (Vector3.new(0, Pred_Offset or 1.2, 0))
         end
@@ -9230,14 +9281,13 @@ RunService.Heartbeat:Connect(function()
     local key = "K" .. math.random(1000, 9999)
     local dir = (hitPos - Valid_Pair.Origin).Unit
 
-    -- 主动开火同步与槍声触发集成（保留原二代开火/枪声思路）
     local function shoot()
         GN_S:FireServer(tick(), key, tool, "FDS9I83", Valid_Pair.Origin, {dir}, false)
         if TR.Enabled then task.spawn(CreateTracer, Valid_Pair.Origin, dir) end
         ZF_H:FireServer("🧈", tool, key, 1, part, hitPos, dir)
         if tool:FindFirstChild("Hitmarker") then tool.Hitmarker:Fire(part) end
         
-        -- 原生枪声与特效触发逻辑（听得到自己的开火枪声与特殊表现）
+        -- 原生枪声与特效触发逻辑（全局基础枪声）
         if tool:FindFirstChild("Handle") then
             local handle = tool.Handle
             local fireSound = handle:FindFirstChild("Fire") or handle:FindFirstChild("Shoot") or handle:FindFirstChildOfClass("Sound")
@@ -9245,9 +9295,54 @@ RunService.Heartbeat:Connect(function()
                 fireSound:Play()
             end
         end
+
+        -- 实时检测 WeaponHandle / Handle 中的 Muzzle 里面的 Fire Sound1 独立播放逻辑
+        if CustomMuzzleSound_State then
+            pcall(function()
+                local weaponHandle = tool:FindFirstChild("WeaponHandle") or tool:FindFirstChild("Handle")
+                if weaponHandle then
+                    local muzzle = weaponHandle:FindFirstChild("Muzzle")
+                    if muzzle then
+                        local mSound = muzzle:FindFirstChild("Fire Sound1") 
+                                    or muzzle:FindFirstChild("FireSound1") 
+                                    or muzzle:FindFirstChildOfClass("Sound")
+                        
+                        if mSound and mSound:IsA("Sound") then
+                            local clonedSound = mSound:Clone()
+                            clonedSound.Parent = muzzle
+                            clonedSound.Volume = mSound.Volume
+                            clonedSound:Play()
+                            
+                            task.delay(clonedSound.TimeLength > 0 and clonedSound.TimeLength or 2, function()
+                                if clonedSound then clonedSound:Destroy() end
+                            end)
+                        end
+                    end
+                end
+            end)
+        end
+
+        -- 新增：Muzzle Flash 1 特效精准触发逻辑（仅射击时显示 ParticleEmitter 枪口焰）
+        if CustomMuzzleFlash_State then
+            pcall(function()
+                local weaponHandle = tool:FindFirstChild("WeaponHandle") or tool:FindFirstChild("Handle")
+                if weaponHandle then
+                    local muzzle = weaponHandle:FindFirstChild("Muzzle")
+                    if muzzle then
+                        local flashPart = muzzle:FindFirstChild("Muzzle Flash 1") 
+                                       or muzzle:FindFirstChild("MuzzleFlash1") 
+                                       or muzzle:FindFirstChildOfClass("ParticleEmitter")
+                        
+                        if flashPart and flashPart:IsA("ParticleEmitter") then
+                            -- 瞬时点射触发发射粒子，保证不破坏原生颜色与属性且完美匹配
+                            flashPart:Emit(flashPart.Rate > 0 and math.clamp(flashPart.Rate, 1, 10) or 5)
+                        end
+                    end
+                end
+            end)
+        end
     end
 
-    -- 执行射击
     shoot()
 
     if HitLogEnabled then
