@@ -6736,13 +6736,6 @@ local function findAndInvokeNearest()
     end
     if not tool then return end
 
-    -- 检查子弹是否为0
-    local vals = tool:FindFirstChild("Values")
-    local ammo = vals and vals:FindFirstChild("SERVER_Ammo")
-    if ammo and ammo.Value > 0 then 
-        return -- 有子弹则不买
-    end
-
     local toolName = tool.Name
     local nearestPart = nil
     local minDistSq = math.huge
@@ -8215,20 +8208,20 @@ do -- Combat page
 
     do -- Ragebot
         local s1 = Rage:Section({Name="Settings", Side=1})
-        s1:Toggle({Name="Enable", Flag="CAT_Enable_25", Callback=function(v) RB_State=v end}):Keybind({Flag="CAT_Enable_25_KB", Mode="Toggle", Callback=function(v) if Library and Library.SetFlags and Library.SetFlags["CAT_Enable_25"] then Library.SetFlags["CAT_Enable_25"](v) end end})
-        s1:Toggle({Name="Rapid fire", Flag="CAT_Rapid_fire_26", Callback=function(v) RF_State=v end}):Keybind({Flag="CAT_Rapid_fire_26_KB", Mode="Toggle", Callback=function(v) if Library and Library.SetFlags and Library.SetFlags["CAT_Rapid_fire_26"] then Library.SetFlags["CAT_Rapid_fire_26"](v) end end})
-        s1:Toggle({Name="Auto Reload", Flag="CAT_Auto_Reload_27", Callback=function(v) AutoReload=v; if v then AutoReloadSetup() else clearReloadConnections() end end}):Keybind({Flag="CAT_Auto_Reload_27_KB", Mode="Toggle", Callback=function(v) if Library and Library.SetFlags and Library.SetFlags["CAT_Auto_Reload_27"] then Library.SetFlags["CAT_Auto_Reload_27"](v) end end})
-        s1:Toggle({Name="Down Check", Flag="CAT_Down_Check_28", Callback=function(v) DownCheck=v end}):Keybind({Flag="CAT_Down_Check_28_KB", Mode="Toggle", Callback=function(v) if Library and Library.SetFlags and Library.SetFlags["CAT_Down_Check_28"] then Library.SetFlags["CAT_Down_Check_28"](v) end end})
-        s1:Slider({Name="Max Cache", Flag="CAT_Max_Cache_30", Min=0.01, Max=45, Default=0.5, Decimals=0.01, Callback=function(v) WB.Threshold=v end})
-        s1:Slider({Name="Origin Radius", Flag="CAT_Origin_Radius_31", Min=0.1, Max=20, Default=18.50, Decimals=0.01, Callback=function(v) Origin_Radius=v end})
-        s1:Slider({Name="Origin Scans", Flag="CAT_Origin_Scans_32", Min=1, Max=50, Default=24, Callback=function(v) Origin_Scans=math.floor(v) end})
-        s1:Slider({Name="Scan Rate", Flag="CAT_Scan_Rate", Min=1, Max=60, Default=14, Callback=function(v) ScanRate=math.floor(v) end})
-        s1:Slider({Name="Hit Radius", Flag="CAT_Hit_Radius_33", Min=0.1, Max=25, Default=23.50, Decimals=0.01, Callback=function(v) Hit_Radius=v end})
-        s1:Slider({Name="Hit Scans", Flag="CAT_Hit_Scans_34", Min=1, Max=50, Default=24, Callback=function(v) Hit_Scans=math.floor(v) end})
+        s1:Toggle({Name="Enable", Flag="CAT_Enable_25",       Callback=function(v) RB_State=v end}):Keybind({Flag="CAT_Enable_25_KB", Mode="Toggle", Callback=function(v) if Library and Library.SetFlags and Library.SetFlags["CAT_Enable_25"] then Library.SetFlags["CAT_Enable_25"](v) end end})
+        s1:Toggle({Name="Rapid fire", Flag="CAT_Rapid_fire_26",   Callback=function(v) RF_State=v end}):Keybind({Flag="CAT_Rapid_fire_26_KB", Mode="Toggle", Callback=function(v) if Library and Library.SetFlags and Library.SetFlags["CAT_Rapid_fire_26"] then Library.SetFlags["CAT_Rapid_fire_26"](v) end end})
+        s1:Toggle({Name="Auto Reload", Flag="CAT_Auto_Reload_27",  Callback=function(v) AutoReload=v; if v then AutoReloadSetup() else clearReloadConnections() end end}):Keybind({Flag="CAT_Auto_Reload_27_KB", Mode="Toggle", Callback=function(v) if Library and Library.SetFlags and Library.SetFlags["CAT_Auto_Reload_27"] then Library.SetFlags["CAT_Auto_Reload_27"](v) end end})
+        s1:Toggle({Name="Down Check", Flag="CAT_Down_Check_28",   Callback=function(v) DownCheck=v end}):Keybind({Flag="CAT_Down_Check_28_KB", Mode="Toggle", Callback=function(v) if Library and Library.SetFlags and Library.SetFlags["CAT_Down_Check_28"] then Library.SetFlags["CAT_Down_Check_28"](v) end end})
+        s1:Slider({Name="Max Cache", Flag="CAT_Max_Cache_30",    Min=0.01, Max=45,  Default=0.5,   Decimals=0.01, Callback=function(v) WB.Threshold=v end})
+        s1:Slider({Name="Origin Radius", Flag="CAT_Origin_Radius_31",Min=0.1, Max=20, Default=18.50, Decimals=0.01, Callback=function(v) Origin_Radius=v end})
+        s1:Slider({Name="Origin Scans", Flag="CAT_Origin_Scans_32", Min=1,   Max=50, Default=24,    Callback=function(v) Origin_Scans=math.floor(v) end})
+        s1:Slider({Name="Scan Rate",    Flag="CAT_Scan_Rate",       Min=1,   Max=60, Default=14,    Callback=function(v) ScanRate=math.floor(v) end})
+        s1:Slider({Name="Hit Radius", Flag="CAT_Hit_Radius_33",   Min=0.1, Max=25, Default=23.50, Decimals=0.01, Callback=function(v) Hit_Radius=v end})
+        s1:Slider({Name="Hit Scans", Flag="CAT_Hit_Scans_34",    Min=1,   Max=50, Default=24,    Callback=function(v) Hit_Scans=math.floor(v) end})
         
-        -- 多选击中部件控制区（完美替换原本的 Pred 预测模块）
+        -- 新增：多选击中部位控制区（完美集成您指定的 UI 写法）
         local s_parts = Rage:Section({Name="Hit Parts (Multi-Select)", Side=1})
-        s_parts:Dropdown({Name="Target Parts", Flag="CAT_Target_Parts", Multi=true, Items={"Head", "Torso", "HumanoidRootPart", "Left Arm", "Right Arm", "Left Leg", "Right Leg"}, Default={"Head", "HumanoidRootPart"}, Callback=function(v) Selected_HitParts = v end})
+        s_parts:Dropdown({Name="Target Parts", Flag="CAT_Target_Parts", Multi=true, Items={"Head", "Torso", "HumanoidRootPart"}, Default={"Head", "HumanoidRootPart"}, Callback=function(v) Selected_HitParts = v end})
 
         -- Muzzle Sound 开关控制区
         local s_sound = Rage:Section({Name="Muzzle Sound", Side=1})
@@ -8239,8 +8232,8 @@ do -- Combat page
         s_fx:Toggle({Name="Muzzle Flash 1", Flag="CAT_Muzzle_Flash_1", Default=false, Callback=function(v) CustomMuzzleFlash_State = v end})
 
         local s2 = Rage:Section({Name="Target Selection", Side=2})
-        s2:Dropdown({Name="Target Mode", Flag="CAT_Target_Mode_35", Items={"Near","Mouse","Centre","Lock"}, Default="Near", Callback=function(v) TargetMode=v end})
-        s2:Dropdown({Name="Hit Sound", Flag="CAT_Hit_Sound_36", Items={"None","Rust","CODE200","Minecraft","Neverlose","Gamesense","Bonk","Bat","Laser Beam","Fatality","Bow","koch","golda","agpa1","agpa2","Bameware","Bell","Bubble","Pick","Pop","Sans","Fart","Big","Vine","Bruh","Skeet"}, Default="None", Callback=function(v) HitSoundSelection=v end})
+        s2:Dropdown({Name="Target Mode", Flag="CAT_Target_Mode_35", Items={"Near","Mouse","Centre","Lock"},         Default="Near", Callback=function(v) TargetMode=v end})
+        s2:Dropdown({Name="Hit Sound", Flag="CAT_Hit_Sound_36",   Items={"None","Rust","CODE200","Minecraft","Neverlose","Gamesense","Bonk","Bat","Laser Beam","Fatality","Bow","koch","golda","agpa1","agpa2","Bameware","Bell","Bubble","Pick","Pop","Sans","Fart","Big","Vine","Bruh","Skeet"}, Default="None", Callback=function(v) HitSoundSelection=v end})
     end
 end
 
@@ -9212,7 +9205,7 @@ RunService.RenderStepped:Connect(function(dt)
     end
 end)
 
--- == Ragebot fire Heartbeat with Multi-Select Target Parts Integration + Muzzle Fire Sound1 & Muzzle Flash 1 ==
+-- == Ragebot fire Heartbeat with Multi-Select Target Parts & Native Shoot Integration + Muzzle Fire Sound1 & Muzzle Flash 1 ==
 RunService.Heartbeat:Connect(function()
     if not RB_State or not Valid_Pair then return end
     local char = LocalPlayer.Character
@@ -9251,21 +9244,56 @@ RunService.Heartbeat:Connect(function()
     local targetChar = Valid_Pair.Target and Valid_Pair.Target.Character
     if not targetChar then return end
 
-    -- 多选部件优先级匹配逻辑（从用户在 UI 勾选的列表中动态寻找第一个存在于目标身上的有效部件）
-    local part, hitPos = nil, Valid_Pair.Hit
-    local selectedParts = Selected_HitParts or {"Head", "HumanoidRootPart"}
-    for _, partName in ipairs(selectedParts) do
-        local foundPart = targetChar:FindFirstChild(partName)
-        if foundPart and foundPart:IsA("BasePart") then
-            part = foundPart
-            hitPos = foundPart.Position
+    local headPart = targetChar:FindFirstChild("Head")
+    local torsoPart = targetChar:FindFirstChild("Torso") or targetChar:FindFirstChild("UpperTorso")
+    local hrpPart = targetChar:FindFirstChild("HumanoidRootPart")
+
+    -- 动态部位选择与远距离不空枪补偿机制 (Smart Priority & Distance Compensation)
+    local selectedParts = Selected_HitParts
+    local validPartsList = {}
+
+    if type(selectedParts) == "table" then
+        if selectedParts["Head"] or selectedParts[1] == "Head" then table.insert(validPartsList, headPart) end
+        if selectedParts["Torso"] or selectedParts[1] == "Torso" or selectedParts[2] == "Torso" then table.insert(validPartsList, torsoPart) end
+        if selectedParts["HumanoidRootPart"] or selectedParts[3] == "HumanoidRootPart" then table.insert(validPartsList, hrpPart) end
+    end
+
+    -- 如果用户未做任何勾选，默认采用原始最高精度击中兜底 (Fallback)
+    if #validPartsList == 0 then
+        validPartsList = {headPart, hrpPart, torsoPart}
+    end
+
+    local part = nil
+    local hitPos = Valid_Pair.Hit
+
+    -- 按照谁最优先的原则进行精准匹配与远距离防空枪修正
+    for _, candidate in ipairs(validPartsList) do
+        if candidate then
+            part = candidate
+            local candidatePos = candidate.Position
+            
+            -- 运用原lua打头不空枪的同等待遇思维：针对躯干和根部在远距离应用平滑补偿与距离修正
+            if candidate == torsoPart or candidate == hrpPart then
+                if hrpPart then
+                    local distanceToHRP = (candidatePos - hrpPart.Position).Magnitude
+                    if distanceToHRP > 15 or (Valid_Pair.Origin - candidatePos).Magnitude > 50 then
+                        hitPos = candidatePos + Vector3.new(0, 0.5, 0)
+                    else
+                        hitPos = candidatePos
+                    end
+                else
+                    hitPos = candidatePos
+                end
+            else
+                hitPos = Valid_Pair.Hit
+            end
             break
         end
     end
-    if not part then
-        part = targetChar:FindFirstChild("Head") or targetChar:FindFirstChild("HumanoidRootPart")
+
+    if not part then 
+        part = headPart or hrpPart
         if not part then return end
-        hitPos = part.Position
     end
 
     local key = "K" .. math.random(1000, 9999)
@@ -9277,24 +9305,32 @@ RunService.Heartbeat:Connect(function()
         ZF_H:FireServer("🧈", tool, key, 1, part, hitPos, dir)
         if tool:FindFirstChild("Hitmarker") then tool.Hitmarker:Fire(part) end
         
+        -- 原生枪声与特效触发逻辑（全局基础枪声）
         if tool:FindFirstChild("Handle") then
             local handle = tool.Handle
             local fireSound = handle:FindFirstChild("Fire") or handle:FindFirstChild("Shoot") or handle:FindFirstChildOfClass("Sound")
-            if fireSound and fireSound:IsA("Sound") then fireSound:Play() end
+            if fireSound and fireSound:IsA("Sound") then
+                fireSound:Play()
+            end
         end
 
+        -- 实时检测 WeaponHandle / Handle 中的 Muzzle 里面的 Fire Sound1 独立播放逻辑
         if CustomMuzzleSound_State then
             pcall(function()
                 local weaponHandle = tool:FindFirstChild("WeaponHandle") or tool:FindFirstChild("Handle")
                 if weaponHandle then
                     local muzzle = weaponHandle:FindFirstChild("Muzzle")
                     if muzzle then
-                        local mSound = muzzle:FindFirstChild("Fire Sound1") or muzzle:FindFirstChild("FireSound1") or muzzle:FindFirstChildOfClass("Sound")
+                        local mSound = muzzle:FindFirstChild("Fire Sound1") 
+                                    or muzzle:FindFirstChild("FireSound1") 
+                                    or muzzle:FindFirstChildOfClass("Sound")
+                        
                         if mSound and mSound:IsA("Sound") then
                             local clonedSound = mSound:Clone()
                             clonedSound.Parent = muzzle
                             clonedSound.Volume = mSound.Volume
                             clonedSound:Play()
+                            
                             task.delay(clonedSound.TimeLength > 0 and clonedSound.TimeLength or 2, function()
                                 if clonedSound then clonedSound:Destroy() end
                             end)
@@ -9304,13 +9340,17 @@ RunService.Heartbeat:Connect(function()
             end)
         end
 
+        -- 新增：Muzzle Flash 1 特效精准触发逻辑（仅射击时显示 ParticleEmitter 枪口焰）
         if CustomMuzzleFlash_State then
             pcall(function()
                 local weaponHandle = tool:FindFirstChild("WeaponHandle") or tool:FindFirstChild("Handle")
                 if weaponHandle then
                     local muzzle = weaponHandle:FindFirstChild("Muzzle")
                     if muzzle then
-                        local flashPart = muzzle:FindFirstChild("Muzzle Flash 1") or muzzle:FindFirstChild("MuzzleFlash1") or muzzle:FindFirstChildOfClass("ParticleEmitter")
+                        local flashPart = muzzle:FindFirstChild("Muzzle Flash 1") 
+                                       or muzzle:FindFirstChild("MuzzleFlash1") 
+                                       or muzzle:FindFirstChildOfClass("ParticleEmitter")
+                        
                         if flashPart and flashPart:IsA("ParticleEmitter") then
                             flashPart:Emit(flashPart.Rate > 0 and math.clamp(flashPart.Rate, 1, 10) or 5)
                         end
@@ -9336,7 +9376,7 @@ RunService.Heartbeat:Connect(function()
         end
         local fd = (dmg * mult) - (math.floor((Valid_Pair.Origin - hitPos).Magnitude / 50) * 2)
         local mp = GetLocalRealPosition()
-        local tr = targetChar:FindFirstChild("HumanoidRootPart")
+        local tr = hrpPart
         ProcessHitLog(Valid_Pair.Target.Name, tool.Name, math.floor(fd * 100) / 100, tr and math.floor((mp - tr.Position).Magnitude) or 0, WB.Cached)
     end
 
