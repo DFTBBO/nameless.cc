@@ -6464,6 +6464,7 @@ local OriginalNeckC0, OriginalNeckC1              = nil, nil
 local DoTweak_fn                                  = nil
 local HeadYaw, HeadRotSpeed, HeadYawTime          = 0, 30, 0
 local HeadCustomYaw                               = 0
+local RandomSpeed                                 = 15
 
 -- Invisible
 local Invis_Enabled, Invis_Track, Invis_SavedCF  = false, nil, nil
@@ -6698,16 +6699,22 @@ local MA = {
 
 -- Antis Constants
 local AC = {
-    NeckC0 = CFrame.new(0, 0.4, 0.3),
-    NeckC1 = CFrame.new(0, -0.1, 0.4) * CFrame.Angles(math.rad(90), math.rad(-180), 0),
-    LShoulder  = CFrame.new(-1, 0.5, 0,  0.020794034, -7.74860382e-07, -0.999783635, -0.98459357,  0.173654854, -0.0204781592,  0.173617214,  0.984806538,  0.00361025333),
-    RShoulder  = CFrame.new( 1, 0.5, 0,  0.020793736,  1.07288361e-06,  0.999783933,  0.984594166,  0.173652649, -0.0204781592, -0.173615277,  0.984807134,  0.00360971689),
-    Mag6D      = CFrame.new(0.00922322646, 0.729015231, -1.10657895, 0.999783754, -6.51925802e-09, -0.0207949243, -0.0204789862, 0.173652411, -0.984594107,  0.00361109618,  0.984807014,  0.17361486),
-    Tool6D     = CFrame.new(0.00922359806, 0.729012489, -1.10657847, 0.999783754, -2.79396772e-09, -0.0207949281, -0.0204789862, 0.173653483, -0.984593868,  0.00361111294,  0.984806776,  0.173615932),
-    AntiDown   = Vector3.new(0.006237113382667303, -6, -0.18136750161647797),
-    OpenHands  = Vector3.new(0.006237113382667303,  6,  0.18136750161647797),
-    HandsUp1   = Vector3.new(-4237.62255859375,  9848.9267578125, -2292.4501953125),
-    HandsUp2   = Vector3.new(-4264.8974609375,   0.9520299434661865, -556.17333984375),
+    NeckC0         = CFrame.new(0, 0.4, 0.3),
+    NeckC1         = CFrame.new(0, -0.1, 0.4) * CFrame.Angles(math.rad(90), math.rad(-180), 0),
+    DownHeadC0     = CFrame.new(0, 1, 0) * CFrame.Angles(math.rad(90), 0, 0),
+    LShoulder      = CFrame.new(-1, 0.5, 0,  0.020794034, -7.74860382e-07, -0.999783635, -0.98459357,  0.173654854, -0.0204781592,  0.173617214,  0.984806538,  0.00361025333),
+    RShoulder      = CFrame.new( 1, 0.5, 0,  0.020793736,  1.07288361e-06,  0.999783933,  0.984594166,  0.173652649, -0.0204781592, -0.173615277,  0.984807134,  0.00360971689),
+    Mag6D          = CFrame.new(0.00922322646, 0.729015231, -1.10657895, 0.999783754, -6.51925802e-09, -0.0207949243, -0.0204789862, 0.173652411, -0.984594107,  0.00361109618,  0.984807014,  0.17361486),
+    Tool6D         = CFrame.new(0.00922359806, 0.729012489, -1.10657847, 0.999783754, -2.79396772e-09, -0.0207949281, -0.0204789862, 0.173653483, -0.984593868,  0.00361111294,  0.984806776,  0.173615932),
+    DownHandC0     = CFrame.new(-1, 0, 0) * CFrame.Angles(math.rad(180), 0, 0),
+    AntiDown       = Vector3.new(0.006237113382667303, -6, -0.18136750161647797),
+    OpenHands      = Vector3.new(0.006237113382667303,  6,  0.18136750161647797),
+    HandsUp1       = Vector3.new(-4237.62255859375,  9848.9267578125, -2292.4501953125),
+    HandsUp2       = Vector3.new(-4264.8974609375,   0.9520299434661865, -556.17333984375),
+    DownHandVal    = Vector3.new(0, -9999, 0),
+    RandomHandVal  = Vector3.new(0, 0, 0),
+    DownHeadVal    = Vector3.new(0, -9999, 0),
+    RandomHeadVal  = Vector3.new(0, 0, 0),
 }
 
 -- 三 (ui 变量与配置表)
@@ -7062,8 +7069,18 @@ oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
                     args[1][1][1] = AC.HandsUp1; args[1][1][2] = AC.HandsUp2
                 elseif HandsModSelection == "Open hands" then
                     args[1][1][1] = AC.OpenHands; args[1][1][2] = AC.OpenHands
+                elseif HandsModSelection == "Down hand" then
+                    args[1][1][1] = AC.DownHandVal; args[1][1][2] = AC.DownHandVal
+                elseif HandsModSelection == "Random hand" then
+                    args[1][1][1] = AC.RandomHandVal; args[1][1][2] = AC.RandomHandVal
                 end
-                if HeadMode == "Hide head" then args[1][1][3] = AC.AntiDown end
+                if HeadMode == "Hide head" then 
+                    args[1][1][3] = AC.AntiDown 
+                elseif HeadMode == "Down head" then
+                    args[1][1][3] = AC.DownHeadVal
+                elseif HeadMode == "Random head" then
+                    args[1][1][3] = AC.RandomHeadVal
+                end
             end)
         end
     end
@@ -8468,7 +8485,7 @@ do -- Antis page
     local Page        = Window:Page({Name="Antis", SubPages=false})
     local AntiHitSec  = Page:Section({Name="Anti hit", Side=1})
 
-    AntiHitSec:Dropdown({Name="Head mode", Flag="CAT_Head_mode_59", Items={"Hide head","Yaw head","Custom"}, Callback=function(v)
+    AntiHitSec:Dropdown({Name="Head mode", Flag="CAT_Head_mode_59", Items={"Hide head","Yaw head","Custom","lazy head","Random head"}, Callback=function(v)
         if not v and OriginalNeckC0 then
             local ch = LocalPlayer.Character
             if ch then
@@ -8484,8 +8501,9 @@ do -- Antis page
     end})
     AntiHitSec:Slider({Name="Custom yaw", Flag="CAT_Custom_yaw_60",     Min=-90, Max=90, Default=30,  Decimals=0.1, Callback=function(v) HeadYaw=v; HeadCustomYaw=v end})
     AntiHitSec:Slider({Name="Rotation speed", Flag="CAT_Rotation_speed_61", Min=-50,  Max=50,  Default=30,  Decimals=0.1, Callback=function(v) HeadRotSpeed=v end})
+    AntiHitSec:Slider({Name="Random speed", Flag="CAT_Random_speed_63", Min=1, Max=50, Default=15, Decimals=0.1, Callback=function(v) RandomSpeed = v end})
 
-    AntiHitSec:Dropdown({Name="Hands mod", Flag="CAT_Hands_mod_62", Items={"Hands up","Open hands"}, Callback=function(v) HandsModSelection=v end})
+    AntiHitSec:Dropdown({Name="Hands mod", Flag="CAT_Hands_mod_62", Items={"Hands up","Open hands","lazy hand","Random hand"}, Callback=function(v) HandsModSelection=v end})
 
     AntiHitSec:Toggle({Name="乱飞", Flag="CAT_AN_LuanFei", Callback=function(v)
         LF.Enabled = v
@@ -9272,6 +9290,16 @@ RunService.RenderStepped:Connect(function(dt)
             if not OriginalNeckC0 then OriginalNeckC0 = neck.C0; OriginalNeckC1 = neck.C1 end
             neck.C0 = AC.NeckC0
             neck.C1 = AC.NeckC1
+        elseif HeadMode == "Down head" and neck then
+            if not OriginalNeckC0 then OriginalNeckC0 = neck.C0; OriginalNeckC1 = neck.C1 end
+            neck.C0 = AC.DownHeadC0
+        elseif HeadMode == "Random head" and neck then
+            if not OriginalNeckC0 then OriginalNeckC0 = neck.C0; OriginalNeckC1 = neck.C1 end
+            HeadYawTime = HeadYawTime + dt * RandomSpeed
+            local rx = math.clamp(math.sin(HeadYawTime * 1.3) * 0.8, -0.5, 0.5)
+            local ry = math.cos(HeadYawTime * 0.9) * 1.2
+            local rz = math.sin(HeadYawTime * 1.1) * 0.5
+            neck.C0 = AC.NeckC0 * CFrame.Angles(rx, ry, rz)
         elseif (HeadMode == "Yaw head" or HeadMode == "Custom") and hrp then
             if not DoTweak_fn then
                 for _, v in getgc(true) do
@@ -9288,7 +9316,7 @@ RunService.RenderStepped:Connect(function(dt)
                 if HeadMode == "Yaw head" then
                     HeadYawTime = HeadYawTime + dt
                     angle = math.sin(HeadYawTime * HeadRotSpeed) * math.rad(HeadYaw)
-                else -- Custom: 固定角度
+                else
                     angle = math.rad(HeadCustomYaw)
                 end
                 local neckRot = CFrame.Angles(angle, 0, 0)
@@ -9297,7 +9325,7 @@ RunService.RenderStepped:Connect(function(dt)
                     hrp.Position + Vector3.new(0, 10, 0),
                     hrp.Position,
                     neckRot.LookVector,
-                    true, false, true, true, true, -- 第6个参数设为false，不再调整干涉手臂姿态
+                    true, false, true, true, true,
                     9e9, true
                 )
             end
@@ -9306,14 +9334,26 @@ RunService.RenderStepped:Connect(function(dt)
 
     if HandsModSelection and torso then
         local tool = char:FindFirstChildOfClass("Tool")
-        if HandsModSelection == "Hands up" and tool then
+        if tool then
             local lS = torso:FindFirstChild("Left Shoulder")
             local rS = torso:FindFirstChild("Right Shoulder")
-            if lS then lS.C0 = AC.LShoulder end
-            if rS then rS.C0 = AC.RShoulder end
-            for _, v in ipairs(tool:GetDescendants()) do
-                if v.Name == "Mag6D_Torso"  and v:IsA("Motor6D") then v.C0 = AC.Mag6D  end
-                if v.Name == "Tool6D_Torso" and v:IsA("Motor6D") then v.C0 = AC.Tool6D end
+            if HandsModSelection == "Hands up" then
+                if lS then lS.C0 = AC.LShoulder end
+                if rS then rS.C0 = AC.RShoulder end
+                for _, v in ipairs(tool:GetDescendants()) do
+                    if v.Name == "Mag6D_Torso"  and v:IsA("Motor6D") then v.C0 = AC.Mag6D  end
+                    if v.Name == "Tool6D_Torso" and v:IsA("Motor6D") then v.C0 = AC.Tool6D end
+                end
+            elseif HandsModSelection == "Down hand" then
+                if lS then lS.C0 = AC.DownHandC0 end
+                if rS then rS.C0 = AC.DownHandC0 end
+            elseif HandsModSelection == "Random hand" then
+                HeadYawTime = HeadYawTime + dt * RandomSpeed
+                local rx = math.sin(HeadYawTime * 1.2) * 1.5
+                local rz = math.cos(HeadYawTime * 0.8) * 1.5
+                local randCF = CFrame.Angles(rx, 0, rz)
+                if lS then lS.C0 = AC.LShoulder * randCF end
+                if rS then rS.C0 = AC.RShoulder * randCF end
             end
         end
     end
