@@ -656,13 +656,12 @@ local CustomFont = { } do
             end
         end
 
-        CustomFont:New("Monaco", 400, "Regular", {
+        CustomFont:New("Monaco", 900, "Regular", {
             Url = "https://github.com/sametexe001/luas/raw/refs/heads/main/fonts/Monaco.ttf"
         })
 
         Library.Font = CustomFont:Get("Monaco")
     end
-
 
     Library.Holder = Instances:Create("ScreenGui", {
         Parent = gethui(),
@@ -6444,7 +6443,7 @@ local SA = {
 if not WhiteList then WhiteList = {} end
 if not TargetList then TargetList = {} end
 
-local SilkscreenFont = Font.new("rbxassetid://12187371840")
+local SilkscreenFont = Font.new("rbxassetid://12187371485")
 local CONFIG = {
     Rate_Active = 1/12, Rate_Idle = 1, ContentRate = 1/14,
     StrokeThickness = 0.8,
@@ -7534,97 +7533,54 @@ local function updatePlayerBoxes(p)
 end
 local function refreshAllESP() for _,p in pairs(Players:GetPlayers()) do updatePlayerBoxes(p) end end
 
--- ====================================================================
--- == 第二部分：原 Lua Wallbang 系统（重构、全方向强化与目标选择）
--- ====================================================================
-
--- 强化型全方向随机偏移计算 (支持前后左右上下全方位多维扩展)
 local function GetRandomOffset(r)
-    if r <= 0.1 then return Vector3.zero end
-    -- 结合球面随机方向与上下左右前后多维权重增强
-    local baseDir = Vector3.new(
-        math.random(-100, 100), 
-        math.random(-80, 80),   -- 上下方向权重增强
-        math.random(-100, 100)
-    ).Unit
-    return baseDir * (math.random() * r)
+    if r<=0.1 then return Vector3.zero end
+    return Vector3.new(math.random(-100,100),math.random(-100,100),math.random(-100,100)).Unit*(math.random()*r)
 end
 
--- 高精度可视化射线渲染（支持自定义动态颜色与渐变追踪）
 local function VisualizeRay(o, t, col)
     if not Debug_Rays then return end
-    local d = (t - o).Magnitude
-    if d < 0.1 then return end
-    local rp = Instance.new("Part")
-    rp.Anchored = true
-    rp.CanCollide = false
-    rp.Material = Enum.Material.Neon
-    rp.Color = col
-    rp.Size = Vector3.new(0.06, 0.06, d)
-    rp.CFrame = CFrame.lookAt(o, t) * CFrame.new(0, 0, -d / 2)
-    rp.Parent = Workspace
-    Debris:AddItem(rp, 1)
+    local d=(t-o).Magnitude; if d<0.1 then return end
+    local rp=Instance.new("Part"); rp.Anchored=true; rp.CanCollide=false; rp.Material=Enum.Material.Neon; rp.Color=col
+    rp.Size=Vector3.new(0.05,0.05,d); rp.CFrame=CFrame.lookAt(o,t)*CFrame.new(0,0,-d/2); rp.Parent=Workspace; Debris:AddItem(rp,1)
 end
 
--- 强化重构的 Wallbang 核心碰撞检测（全方向穿墙、障碍穿透判定优化）
 local function CheckWallbang(p1, p2)
-    local params = RaycastParams.new()
-    params.FilterDescendantsInstances = {LocalPlayer.Character, Camera}
-    params.FilterType = Enum.RaycastFilterType.Exclude
+    local params=RaycastParams.new()
+    params.FilterDescendantsInstances={LocalPlayer.Character,Camera}
+    params.FilterType=Enum.RaycastFilterType.Exclude
+    local d=(p2-p1).Magnitude
+    local r=Workspace:Raycast(p1,(p2-p1).Unit*d,params)
     
-    local totalVec = p2 - p1
-    local d = totalVec.Magnitude
-    if d <= 0.001 then return true end
+    -- 修改为：如果没有碰到障碍物，或者障碍物距离目标点小于等于 15 格（允许15格穿墙）
+    local ok=not r or (r.Position-p2).Magnitude<=24 
     
-    local r = Workspace:Raycast(p1, totalVec.Unit * d, params)
-    
-    -- 多方向复合穿透判定：无障碍物，或者障碍物距离目标点小于等于 28 格（放宽并优化至 28 格全方位穿墙容差）
-    local ok = not r or (r.Position - p2).Magnitude <= 28
-    
-    if Debug_Rays then 
-        VisualizeRay(p1, ok and p2 or (r and r.Position or p2), ok and Color3.new(0, 1, 0) or Color3.new(1, 0, 0)) 
-    end
-    
+    if Debug_Rays then VisualizeRay(p1, ok and p2 or (r and r.Position or p2), ok and Color3.new(0,1,0) or Color3.new(1,0,0)) end
     return ok
 end
 
--- 优化强化的目标扫描与选择系统 (支持 Near、Lock、Mouse 多模式全方位适配)
 local function GetTarget()
-    local char = LocalPlayer.Character
-    local root = char and char:FindFirstChild("HumanoidRootPart")
+    local char=LocalPlayer.Character
+    local root=char and char:FindFirstChild("HumanoidRootPart")
     if not root then return nil end
-    
-    local best, metric = nil, math.huge
-    local ml = UIS:GetMouseLocation()
-    local sc = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
-    local myPos = GetLocalRealPosition()
-    
-    for _, p in ipairs(Players:GetPlayers()) do
-        if p ~= LocalPlayer and p.Character then
-            -- 检查白名单与目标锁定过滤列表
-            local isWhitelisted = table.find(WhiteList, p.Name)
-            local isTargetValid = (TargetMode ~= "Lock") or (#TargetList == 0) or table.find(TargetList, p.Name)
-            
-            if not isWhitelisted and isTargetValid then
-                local pr = p.Character:FindFirstChild("HumanoidRootPart")
-                local ph = p.Character:FindFirstChildOfClass("Humanoid")
-                
-                if pr and ph and ph.Health > (DownCheck and 15 or 0) and not p.Character:FindFirstChildOfClass("ForceField") then
-                    if TargetMode == "Near" or TargetMode == "Lock" then
-                        local d = (myPos - pr.Position).Magnitude
-                        if d < metric then 
-                            metric = d
-                            best = p 
-                        end
+    local best,metric=nil,math.huge
+    local ml=UIS:GetMouseLocation()
+    local sc=Vector2.new(Camera.ViewportSize.X/2,Camera.ViewportSize.Y/2)
+    local myPos=GetLocalRealPosition()
+    for _,p in pairs(Players:GetPlayers()) do
+        if p~=LocalPlayer and p.Character then
+            if not table.find(WhiteList,p.Name) and not (TargetMode=="Lock" and #TargetList>0 and not table.find(TargetList,p.Name)) then
+                local pr=p.Character:FindFirstChild("HumanoidRootPart")
+                local ph=p.Character:FindFirstChildOfClass("Humanoid")
+                if pr and ph and ph.Health>(DownCheck and 15 or 0) and not p.Character:FindFirstChildOfClass("ForceField") then
+                    if TargetMode=="Near" or TargetMode=="Lock" then
+                        local d=(myPos-pr.Position).Magnitude
+                        if d<metric then metric=d; best=p end
                     else
-                        local sp, on = Camera:WorldToViewportPoint(pr.Position)
+                        local sp,on=Camera:WorldToViewportPoint(pr.Position)
                         if on then
-                            local cursorTarget = (TargetMode == "Mouse" and ml or sc)
-                            local d2 = (cursorTarget - Vector2.new(sp.X, sp.Y)).Magnitude
-                            if d2 < metric then 
-                                metric = d2
-                                best = p 
-                            end
+                            local d2=((TargetMode=="Mouse" and ml or sc)-Vector2.new(sp.X,sp.Y)).Magnitude
+                            if d2<metric then metric=d2; best=p end
                         end
                     end
                 end
@@ -8660,7 +8616,7 @@ RunService:BindToRenderStep("SmoothMovementCamera", Enum.RenderPriority.Camera.V
 end)
 
 -- =====================================================================
--- == Main Heartbeat (split into sub-functions to keep register count low)
+-- == Main Heartbeat (Optimized & Enhanced Multi-Vector Ragebot Core)
 -- =====================================================================
 
 local function DoSkinUpdate()
@@ -8853,148 +8809,94 @@ local function DoInvisible()
 end
 
 -- =====================================================================
--- == 基础向量与增强拓扑定义 (原版保留并深度矩阵优化)
+-- == 高性能拓扑扫描向量表库 (19种全地形空间立体与差分地形解析算法)
 -- =====================================================================
-local ScanVectors = {
+
+-- 1. 经典25点动态矩阵
+local ScanVectors_Algo1 = {
     Vector3.new(1, 0, 0), Vector3.new(0, 0, 1), Vector3.new(0, 1, 0),
     -Vector3.new(1, 0, 0), -Vector3.new(0, 0, 1), -Vector3.new(0, 1, 0),
-    Vector3.new(1, 1, 0)/math.sqrt(2), Vector3.new(1, 0, 1)/math.sqrt(2), Vector3.new(0, 1, 1)/math.sqrt(2),
-    Vector3.new(-1, 1, 0)/math.sqrt(2), Vector3.new(-1, 0, 1)/math.sqrt(2),
-    -Vector3.new(1, 0, 1)/math.sqrt(2), -Vector3.new(-1, 0, 1)/math.sqrt(2), -Vector3.new(0, -1, 1)/math.sqrt(2),
-    Vector3.new(1, 1, 1)/math.sqrt(3), Vector3.new(-1, 1, 1)/math.sqrt(3), Vector3.new(1, 1, -1)/math.sqrt(3),
-    -Vector3.new(1, 1, 1)/math.sqrt(3), -Vector3.new(1, -1, 1)/math.sqrt(3),
-    Vector3.new(1,2,0)/math.sqrt(5), Vector3.new(-1,2,0)/math.sqrt(5), Vector3.new(1,0,2)/math.sqrt(5), Vector3.new(-1,0,2)/math.sqrt(5),
-    -Vector3.new(-1,0,2)/math.sqrt(5), -Vector3.new(1,0,2)/math.sqrt(5),
+    Vector3.new(1, 1, 0)/1.414, Vector3.new(1, 0, 1)/1.414, Vector3.new(0, 1, 1)/1.414,
+    Vector3.new(-1, 1, 0)/1.414, Vector3.new(-1, 0, 1)/1.414,
+    -Vector3.new(1, 0, 1)/1.414, -Vector3.new(-1, 0, 1)/1.414, -Vector3.new(0, -1, 1)/1.414,
+    Vector3.new(1, 1, 1)/1.732, Vector3.new(-1, 1, 1)/1.732, Vector3.new(1, 1, -1)/1.732,
+    -Vector3.new(1, 1, 1)/1.732, -Vector3.new(1, -1, 1)/1.732,
+    Vector3.new(1,2,0)/2.236, Vector3.new(-1,2,0)/2.236, Vector3.new(1,0,2)/2.236, Vector3.new(-1,0,2)/2.236,
+    -Vector3.new(-1,0,2)/2.236, -Vector3.new(1,0,2)/2.236,
 }
 
--- 性能优化缓存池：零GC压力，防止频繁开辟内存导致FPS暴跌
-local OffsetCache = {
-    Algo1 = {}, Algo2 = {}, Algo3 = {}, Algo4 = {}, Algo5 = {},
-    Algo6 = {}, Algo7 = {}, Algo8 = {}, Algo9 = {}, Algo10 = {},
-    Algo11 = {}, Algo12 = {}, Algo13 = {}, Algo14 = {}, Algo15 = {},
-    Algo16 = {}, Algo17 = {}, Algo18 = {}
-}
-
--- =====================================================================
--- == 核心 18 大多维地形自适应扫描与破墙算法 (暴力无死角升级版)
--- =====================================================================
-
--- 1. 原生增强：固定25点向量表 + 动态多维Roll轴旋转
 local function GetOffsets_Algo1(firePos, targetPos, offset)
     if not offset or offset <= 0 then return {firePos} end
     local offsets = {firePos}
-    local cfOffset = CFrame.new(firePos, targetPos) * CFrame.Angles(0, 0, math.rad(math.random(1, 90)))
-    for _, pos in ipairs(ScanVectors) do
+    local cfOffset = CFrame.new(firePos, targetPos)
+    for _, pos in ipairs(ScanVectors_Algo1) do
         table.insert(offsets, cfOffset * (pos * offset))
     end
     return offsets
 end
 
--- 2. 原生增强：纯净版斐波那契半球密集采样
-local function GetOffsets_Algo2(center, poleDir, radius, count)
+-- 2. 斐波那契全向球体加权扫描
+local function GetOffsets_Algo2(center, radius, count)
     if not radius or radius <= 0 or count <= 0 then return {center} end
     local offsets = {center}
-    local PHI = 0.6180339887
-    local arb = math.abs(poleDir.X) < 0.9 and Vector3.new(1,0,0) or Vector3.new(0,1,0)
-    local t1 = poleDir:Cross(arb).Unit
-    local t2 = poleDir:Cross(t1).Unit
-
+    local PHI = 1.6180339887
     for i = 0, count - 1 do
-        local phi = i * PHI * 2 * math.pi
-        local cosT = 1 - (i + 0.5) / count
-        local sinT = math.sqrt(1 - cosT * cosT)
-        local r = radius * (math.random()^(1/3))
-        local dir = t1 * (sinT * math.cos(phi)) + t2 * (sinT * math.sin(phi)) + poleDir * cosT
-        table.insert(offsets, center + dir * r)
+        local theta = 2 * math.pi * i / PHI
+        local phi = math.acos(1 - 2 * (i + 0.5) / count)
+        local r = radius * (0.5 ^ (1 / 3))
+        local x = math.sin(phi) * math.cos(theta)
+        local y = math.sin(phi) * math.sin(theta)
+        local z = math.cos(phi)
+        table.insert(offsets, center + Vector3.new(x, y, z) * r)
     end
     return offsets
 end
 
--- 3. 新增算法一：平地远距离高密度环形外扩扫描
-local function GetOffsets_Algo3(center, poleDir, radius)
-    local offsets = {center}
-    local up = Vector3.new(0, 1, 0)
-    for i = 1, 16 do
-        local angle = (i / 16) * math.pi * 2
-        local ringDir = Vector3.new(math.cos(angle), 0, math.sin(angle))
-        table.insert(offsets, center + ringDir * radius)
-        table.insert(offsets, center + ringDir * (radius * 0.6) + up * (radius * 0.4))
-        table.insert(offsets, center + ringDir * (radius * 1.3) - up * (radius * 0.2))
+-- 3. 上下镂空与垂直高差对地差分扫描
+local function GetOffsets_Algo3(center, radius)
+    if not radius or radius <= 0 then return {center} end
+    local offsets = {center, center + Vector3.new(0, radius, 0), center - Vector3.new(0, radius, 0)}
+    for i = 1, 6 do
+        local angle = (i / 6) * math.pi * 2
+        local x = math.cos(angle) * radius
+        local z = math.sin(angle) * radius
+        table.insert(offsets, center + Vector3.new(x, radius * 0.8, z))
+        table.insert(offsets, center + Vector3.new(x, -radius * 0.8, z))
+        table.insert(offsets, center + Vector3.new(x * 1.5, 0, z * 1.5))
     end
     return offsets
 end
 
--- 4. 新增算法二：上方远距离向下倾斜立体锥形网格扫描
-local function GetOffsets_Algo4(center, radius)
+-- 4. 左右侧翼宽视野镂空穿透扫描
+local function GetOffsets_Algo4(center, targetPos, radius)
+    if not radius or radius <= 0 then return {center} end
     local offsets = {center}
-    for x = -1, 1, 1 do
-        for z = -1, 1, 1 do
-            if x ~= 0 or z ~= 0 then
-                table.insert(offsets, center + Vector3.new(x * radius, radius * 0.9, z * radius))
-                table.insert(offsets, center + Vector3.new(x * radius * 0.5, radius * 1.5, z * radius * 0.5))
-                table.insert(offsets, center + Vector3.new(x * radius * 1.2, radius * 0.4, z * radius * 1.2))
-            end
-        end
-    end
-    table.insert(offsets, center + Vector3.new(0, radius * 1.8, 0))
-    table.insert(offsets, center + Vector3.new(0, radius * 2.5, 0))
-    return offsets
-end
-
--- 5. 新增算法三：下方远距离向上仰角全息穿透扫描
-local function GetOffsets_Algo5(center, radius)
-    local offsets = {center}
-    for x = -1, 1, 1 do
-        for z = -1, 1, 1 do
-            if x ~= 0 or z ~= 0 then
-                table.insert(offsets, center + Vector3.new(x * radius, -radius * 0.9, z * radius))
-                table.insert(offsets, center + Vector3.new(x * radius * 0.5, -radius * 1.5, z * radius * 0.5))
-                table.insert(offsets, center + Vector3.new(x * radius * 1.2, -radius * 0.4, z * radius * 1.2))
-            end
-        end
-    end
-    table.insert(offsets, center + Vector3.new(0, -radius * 1.8, 0))
-    table.insert(offsets, center + Vector3.new(0, -radius * 2.5, 0))
-    return offsets
-end
-
--- 6. 新增算法四：高点对平地垂直立体矩阵深度压制扫描
-local function GetOffsets_Algo6(center, radius)
-    local offsets = {center}
-    local layers = {-0.8, -0.4, 0, 0.4, 0.8, 1.2}
-    for _, l in ipairs(layers) do
-        table.insert(offsets, center + Vector3.new(radius * 0.8, l * radius, 0))
-        table.insert(offsets, center + Vector3.new(-radius * 0.8, l * radius, 0))
-        table.insert(offsets, center + Vector3.new(0, l * radius, radius * 0.8))
-        table.insert(offsets, center + Vector3.new(0, l * radius, -radius * 0.8))
+    local dir = (targetPos - center)
+    local right = Vector3.new(0, 1, 0):Cross(dir).Unit
+    if right.Magnitude < 0.001 then right = Vector3.new(1, 0, 0) end
+    for i = 1, 4 do
+        local dist = (i / 4) * radius * 1.5
+        table.insert(offsets, center + right * dist)
+        table.insert(offsets, center - right * dist)
+        table.insert(offsets, center + right * dist + Vector3.new(0, radius * 0.5, 0))
+        table.insert(offsets, center - right * dist - Vector3.new(0, radius * 0.5, 0))
     end
     return offsets
 end
 
--- 7. 新增算法五：平地针对高点极限边缘侧向夹击突破扫描
-local function GetOffsets_Algo7(center, poleDir, radius)
+-- 5. 远距离深度网格分层立体扫描
+local function GetOffsets_Algo5(center, targetPos, radius)
+    if not radius or radius <= 0 then return {center} end
     local offsets = {center}
-    local perp = poleDir:Cross(Vector3.new(0, 1, 0))
-    if perp.Magnitude < 0.001 then perp = Vector3.new(1, 0, 0) else perp = perp.Unit end
-    table.insert(offsets, center + perp * radius)
-    table.insert(offsets, center - perp * radius)
-    table.insert(offsets, center + perp * (radius * 1.6) + Vector3.new(0, radius * 0.6, 0))
-    table.insert(offsets, center - perp * (radius * 1.6) + Vector3.new(0, radius * 0.6, 0))
-    table.insert(offsets, center + perp * (radius * 0.8) - Vector3.new(0, radius * 0.4, 0))
-    table.insert(offsets, center - perp * (radius * 0.8) - Vector3.new(0, radius * 0.4, 0))
-    return offsets
-end
-
--- 8. 新增算法六：上下左右全向镂空地形高频网格爆破扫描 (针对窗户/栏杆/细缝)
-local function GetOffsets_Algo8(center, radius)
-    local offsets = {center}
-    local step = radius * 0.5
+    local lookDir = (targetPos - center)
+    local forwardNorm = Vector3.new(lookDir.X, 0, lookDir.Z).Unit
+    if forwardNorm.Magnitude < 0.001 then forwardNorm = Vector3.new(0, 0, 1) end
     for x = -1, 1 do
         for y = -1, 1 do
-            for z = -1, 1 do
+            for z = 0, 2 do
                 if not (x == 0 and y == 0 and z == 0) then
-                    table.insert(offsets, center + Vector3.new(x * step, y * step, z * step))
-                    table.insert(offsets, center + Vector3.new(x * step * 1.5, y * step * 0.5, z * step * 1.5))
+                    local offsetVec = Vector3.new(x * radius, y * radius * 0.8, z * radius * 1.2)
+                    table.insert(offsets, center + offsetVec)
                 end
             end
         end
@@ -9002,159 +8904,253 @@ local function GetOffsets_Algo8(center, radius)
     return offsets
 end
 
--- 9. 新增算法七：动态螺旋菲波那契立体柱面超远穿透扫描
-local function GetOffsets_Algo9(center, radius, count)
+-- 6. 复杂障碍地形自适应十字星多点延伸扫描
+local function GetOffsets_Algo6(center, radius)
+    if not radius or radius <= 0 then return {center} end
     local offsets = {center}
-    local limit = math.min(count or 20, 24)
-    for i = 1, limit do
-        local theta = i * 2.0
-        local h = (i / limit - 0.5) * 2 * radius
-        local r = radius * 0.9
-        table.insert(offsets, center + Vector3.new(math.cos(theta) * r, h, math.sin(theta) * r))
-        table.insert(offsets, center + Vector3.new(math.cos(theta + math.pi) * (r * 0.5), h * 1.2, math.sin(theta + math.pi) * (r * 0.5)))
+    local multipliers = {0.3, 0.7, 1.0, 1.4}
+    for _, m in ipairs(multipliers) do
+        table.insert(offsets, center + Vector3.new(radius * m, 0, 0))
+        table.insert(offsets, center + Vector3.new(-radius * m, 0, 0))
+        table.insert(offsets, center + Vector3.new(0, radius * m, 0))
+        table.insert(offsets, center + Vector3.new(0, -radius * m, 0))
+        table.insert(offsets, center + Vector3.new(0, 0, radius * m))
+        table.insert(offsets, center + Vector3.new(0, 0, -radius * m))
     end
     return offsets
 end
 
--- 10. 新增算法八：混沌无序极速暴力多点随机云兜底扫描
-local function GetOffsets_Algo10(center, radius, count)
+-- 7. 动态螺旋发散锥形扫描
+local function GetOffsets_Algo7(center, targetPos, radius)
+    if not radius or radius <= 0 then return {center} end
     local offsets = {center}
-    local limit = math.min(count or 16, 20)
-    for i = 1, limit do
-        local rx = (math.random() - 0.5) * 2 * radius * 1.2
-        local ry = (math.random() - 0.5) * 2 * radius * 1.2
-        local rz = (math.random() - 0.5) * 2 * radius * 1.2
-        table.insert(offsets, center + Vector3.new(rx, ry, rz))
+    local cf = CFrame.new(center, targetPos)
+    for i = 1, 12 do
+        local angle = i * (math.pi / 6)
+        local rScale = (i / 12) * radius
+        local x = math.cos(angle) * rScale
+        local y = math.sin(angle) * rScale
+        table.insert(offsets, cf * Vector3.new(x, y, -rScale * 0.5))
     end
     return offsets
 end
 
--- 11. 新增算法九：多层复合不平等地形对角线错位扫描
+-- 8. 极端低点与高点差分视界对角扫描
+local function GetOffsets_Algo8(center, radius)
+    if not radius or radius <= 0 then return {center} end
+    local offsets = {center}
+    local steps = {0.5, 1.0, 1.5}
+    for _, s in ipairs(steps) do
+        table.insert(offsets, center + Vector3.new(radius * s, radius * s, radius * s))
+        table.insert(offsets, center + Vector3.new(-radius * s, radius * s, -radius * s))
+        table.insert(offsets, center + Vector3.new(radius * s, -radius * s, -radius * s))
+        table.insert(offsets, center + Vector3.new(-radius * s, -radius * s, radius * s))
+    end
+    return offsets
+end
+
+-- 9. 远距离地面穿透缝隙微距扫描
+local function GetOffsets_Algo9(center, radius)
+    if not radius or radius <= 0 then return {center} end
+    local offsets = {center}
+    local subRadius = radius * 0.4
+    for i = 1, 8 do
+        local rad = (i / 8) * math.pi * 2
+        table.insert(offsets, center + Vector3.new(math.cos(rad) * subRadius, -radius * 0.3, math.sin(rad) * subRadius))
+        table.insert(offsets, center + Vector3.new(math.cos(rad) * subRadius, radius * 0.3, math.sin(rad) * subRadius))
+    end
+    return offsets
+end
+
+-- 10. 平地对高低差复杂障碍全息多维扫描
+local function GetOffsets_Algo10(center, targetPos, radius)
+    if not radius or radius <= 0 then return {center} end
+    local offsets = {center}
+    local dir = (targetPos - center)
+    local perp = dir:Cross(Vector3.new(0, 1, 0))
+    if perp.Magnitude < 0.001 then perp = Vector3.new(1, 0, 0) else perp = perp.Unit end
+    table.insert(offsets, center + perp * radius + Vector3.new(0, radius * 0.5, 0))
+    table.insert(offsets, center - perp * radius + Vector3.new(0, radius * 0.5, 0))
+    table.insert(offsets, center + perp * radius - Vector3.new(0, radius * 0.5, 0))
+    table.insert(offsets, center - perp * radius - Vector3.new(0, radius * 0.5, 0))
+    table.insert(offsets, center + Vector3.new(0, radius * 1.2, 0))
+    table.insert(offsets, center - Vector3.new(0, radius * 1.2, 0))
+    return offsets
+end
+
+-- 11. 终极全地形自适应降噪八面体扫描
 local function GetOffsets_Algo11(center, radius)
-    local offsets = {center}
-    local d = radius * 0.75
-    table.insert(offsets, center + Vector3.new(d, d, d))
-    table.insert(offsets, center + Vector3.new(-d, d, -d))
-    table.insert(offsets, center + Vector3.new(d, -d, -d))
-    table.insert(offsets, center + Vector3.new(-d, -d, d))
-    table.insert(offsets, center + Vector3.new(0, d * 1.4, 0))
-    table.insert(offsets, center + Vector3.new(0, -d * 1.4, 0))
-    return offsets
-end
-
--- 12. 新增算法十：远距离平行面双轨道夹击扫描
-local function GetOffsets_Algo12(center, poleDir, radius)
-    local offsets = {center}
-    local up = Vector3.new(0, 1, 0)
-    local right = poleDir:Cross(up)
-    if right.Magnitude < 0.001 then right = Vector3.new(1, 0, 0) else right = right.Unit end
-    table.insert(offsets, center + right * radius + up * (radius * 0.5))
-    table.insert(offsets, center - right * radius + up * (radius * 0.5))
-    table.insert(offsets, center + right * radius - up * (radius * 0.5))
-    table.insert(offsets, center - right * radius - up * (radius * 0.5))
-    return offsets
-end
-
--- 13. 新增算法十一：上下对称微型漏斗穿透扫描
-local function GetOffsets_Algo13(center, radius)
-    local offsets = {center}
-    for i = 1, 4 do
-        local r = (i / 4) * radius
-        local h = (i / 4) * (radius * 1.2)
-        table.insert(offsets, center + Vector3.new(r, h, 0))
-        table.insert(offsets, center + Vector3.new(-r, -h, 0))
-        table.insert(offsets, center + Vector3.new(0, h, r))
-        table.insert(offsets, center + Vector3.new(0, -h, -r))
-    end
-    return offsets
-end
-
--- 14. 新增算法十二：极端凹凸不平地表地面贴地扫描
-local function GetOffsets_Algo14(center, radius)
-    local offsets = {center}
-    local s = radius * 0.8
-    table.insert(offsets, center + Vector3.new(s, -s * 0.2, s))
-    table.insert(offsets, center + Vector3.new(-s, -s * 0.2, -s))
-    table.insert(offsets, center + Vector3.new(s, -s * 0.2, -s))
-    table.insert(offsets, center + Vector3.new(-s, -s * 0.2, s))
-    table.insert(offsets, center + Vector3.new(0, -s * 0.5, 0))
-    return offsets
-end
-
--- 15. 新增算法十三：高空对低谷垂直广角扇形扩展扫描
-local function GetOffsets_Algo15(center, radius)
-    local offsets = {center}
-    for i = 1, 8 do
-        local ang = (i / 8) * math.pi * 2
-        table.insert(offsets, center + Vector3.new(math.cos(ang) * radius, -radius * 0.6, math.sin(ang) * radius))
-        table.insert(offsets, center + Vector3.new(math.cos(ang) * (radius * 0.5), -radius * 1.2, math.sin(ang) * (radius * 0.5)))
-    end
-    return offsets
-end
-
--- 16. 新增算法十四：低处仰望高处边缘全方位扩散扫描
-local function GetOffsets_Algo16(center, radius)
-    local offsets = {center}
-    for i = 1, 8 do
-        local ang = (i / 8) * math.pi * 2
-        table.insert(offsets, center + Vector3.new(math.cos(ang) * radius, radius * 0.6, math.sin(ang) * radius))
-        table.insert(offsets, center + Vector3.new(math.cos(ang) * (radius * 0.5), radius * 1.2, math.sin(ang) * (radius * 0.5)))
-    end
-    return offsets
-end
-
--- 17. 新增算法十五：360度立体星芒交叉破墙扫描
-local function GetOffsets_Algo17(center, radius)
+    if not radius or radius <= 0 then return {center} end
     local offsets = {center}
     local r = radius * 0.9
-    table.insert(offsets, center + Vector3.new(r, 0, 0))
-    table.insert(offsets, center + Vector3.new(-r, 0, 0))
-    table.insert(offsets, center + Vector3.new(0, r, 0))
-    table.insert(offsets, center + Vector3.new(0, -r, 0))
-    table.insert(offsets, center + Vector3.new(0, 0, r))
-    table.insert(offsets, center + Vector3.new(0, 0, -r))
-    table.insert(offsets, center + Vector3.new(r * 0.7, r * 0.7, 0))
-    table.insert(offsets, center + Vector3.new(-r * 0.7, -r * 0.7, 0))
+    table.insert(offsets, center + Vector3.new(r, r, r))
+    table.insert(offsets, center + Vector3.new(-r, r, r))
+    table.insert(offsets, center + Vector3.new(r, -r, r))
+    table.insert(offsets, center + Vector3.new(r, r, -r))
+    table.insert(offsets, center + Vector3.new(-r, -r, -r))
+    table.insert(offsets, center + Vector3.new(-r, r, -r))
+    table.insert(offsets, center + Vector3.new(r, -r, -r))
+    table.insert(offsets, center + Vector3.new(-r, -r, r))
     return offsets
 end
 
--- 18. 新增算法十六：极限动态补漏双重矩阵扫描
-local function GetOffsets_Algo18(center, radius)
+-- 12. 高点俯瞰低点跨障碍斜向穿透网格扫描
+local function GetOffsets_Algo12(center, targetPos, radius)
+    if not radius or radius <= 0 then return {center} end
     local offsets = {center}
-    local s = radius * 0.5
-    for x = -2, 2, 2 do
-        for z = -2, 2, 2 do
-            if x ~= 0 or z ~= 0 then
-                table.insert(offsets, center + Vector3.new(x * s, s * 0.3, z * s))
-                table.insert(offsets, center + Vector3.new(x * s, -s * 0.3, z * s))
+    local dir = (targetPos - center)
+    local stepDir = dir.Unit * (radius * 0.5)
+    for i = 1, 3 do
+        table.insert(offsets, center + stepDir * i + Vector3.new(0, -radius * (i * 0.3), 0))
+        table.insert(offsets, center + stepDir * i + Vector3.new(radius * 0.4, 0, radius * 0.4))
+        table.insert(offsets, center + stepDir * i + Vector3.new(-radius * 0.4, 0, -radius * 0.4))
+    end
+    return offsets
+end
+
+-- 13. 低点仰攻高点多段抛物预测向量扫描
+local function GetOffsets_Algo13(center, targetPos, radius)
+    if not radius or radius <= 0 then return {center} end
+    local offsets = {center}
+    local upwardBias = Vector3.new(0, radius * 1.5, 0)
+    table.insert(offsets, center + upwardBias)
+    table.insert(offsets, center + upwardBias + Vector3.new(radius * 0.7, 0, 0))
+    table.insert(offsets, center + upwardBias + Vector3.new(-radius * 0.7, 0, 0))
+    table.insert(offsets, center + upwardBias + Vector3.new(0, 0, radius * 0.7))
+    table.insert(offsets, center + upwardBias + Vector3.new(0, 0, -radius * 0.7))
+    return offsets
+end
+
+-- 14. 复杂不平坦地面全向交错缝隙穿透扫描
+local function GetOffsets_Algo14(center, radius)
+    if not radius or radius <= 0 then return {center} end
+    local offsets = {center}
+    for i = 0, 3 do
+        local angle = i * (math.pi / 2) + (math.pi / 4)
+        local x = math.cos(angle) * radius * 1.2
+        local z = math.sin(angle) * radius * 1.2
+        table.insert(offsets, center + Vector3.new(x, radius * 0.2, z))
+        table.insert(offsets, center + Vector3.new(x, -radius * 0.2, z))
+    end
+    return offsets
+end
+
+-- 15. 远距离多维边界交汇立体高密度全息扫描
+local function GetOffsets_Algo15(center, targetPos, radius)
+    if not radius or radius <= 0 then return {center} end
+    local offsets = {center}
+    local cf = CFrame.new(center, targetPos)
+    for x = -1, 1, 2 do
+        for y = -1, 1, 2 do
+            table.insert(offsets, cf * Vector3.new(x * radius * 0.8, y * radius * 0.8, -radius * 0.5))
+        end
+    end
+    table.insert(offsets, center + Vector3.new(0, radius * 1.5, 0))
+    table.insert(offsets, center - Vector3.new(0, radius * 1.5, 0))
+    return offsets
+end
+
+-- 16. 平地穿透高点复杂边缘卡点全方位穿透扫描
+local function GetOffsets_Algo16(center, targetPos, radius)
+    if not radius or radius <= 0 then return {center} end
+    local offsets = {center}
+    local diffY = targetPos.Y - center.Y
+    local extend = Vector3.new(0, diffY * 0.5, 0)
+    table.insert(offsets, center + extend + Vector3.new(radius, 0, radius))
+    table.insert(offsets, center + extend + Vector3.new(-radius, 0, radius))
+    table.insert(offsets, center + extend + Vector3.new(radius, 0, -radius))
+    table.insert(offsets, center + extend + Vector3.new(-radius, 0, -radius))
+    table.insert(offsets, center + Vector3.new(0, radius * 2.0, 0))
+    return offsets
+end
+
+-- 17. 高点俯冲低点障碍物死角全景盲区暴力探测扫描
+local function GetOffsets_Algo17(center, targetPos, radius)
+    if not radius or radius <= 0 then return {center} end
+    local offsets = {center}
+    local dir = (targetPos - center).Unit
+    for i = 1, 4 do
+        local step = i * (radius * 0.6)
+        table.insert(offsets, center + dir * step + Vector3.new(0, -radius * 0.8, 0))
+        table.insert(offsets, center + dir * step + Vector3.new(0, radius * 0.8, 0))
+    end
+    return offsets
+end
+
+-- 18. 远距离高低差错位多重立体网格对角交错穿透扫描
+local function GetOffsets_Algo18(center, targetPos, radius)
+    if not radius or radius <= 0 then return {center} end
+    local offsets = {center}
+    local cf = CFrame.new(center, targetPos)
+    for i = -1, 1, 2 do
+        table.insert(offsets, cf * Vector3.new(i * radius * 1.2, radius * 0.6, -radius * 0.8))
+        table.insert(offsets, cf * Vector3.new(i * radius * 1.2, -radius * 0.6, -radius * 0.8))
+    end
+    table.insert(offsets, center + Vector3.new(radius * 1.5, radius * 1.5, 0))
+    table.insert(offsets, center + Vector3.new(-radius * 1.5, -radius * 1.5, 0))
+    return offsets
+end
+
+-- 19. 全地形自适应极端障碍缝隙无死角终极强压暴力扫描
+local function GetOffsets_Algo19(center, targetPos, radius)
+    if not radius or radius <= 0 then return {center} end
+    local offsets = {center}
+    local midPoint = (center + targetPos) * 0.5
+    table.insert(offsets, midPoint + Vector3.new(0, radius * 1.2, 0))
+    table.insert(offsets, midPoint + Vector3.new(0, -radius * 1.2, 0))
+    table.insert(offsets, center + Vector3.new(radius * 1.3, radius * 1.3, radius * 1.3))
+    table.insert(offsets, center + Vector3.new(-radius * 1.3, -radius * 1.3, -radius * 1.3))
+    return offsets
+end
+
+-- =====================================================================
+-- == 核心 Ragebot 逻辑 (极致性能优化与暴力穿透)
+-- =====================================================================
+
+local function GetTargetParts(targetCharacter)
+    local parts = {}
+    if not targetCharacter then return parts end
+    
+    local priorities = {"Head", "HumanoidRootPart", "UpperTorso", "Torso", "LowerTorso"}
+    for _, name in ipairs(priorities) do
+        local part = targetCharacter:FindFirstChild(name)
+        if part and part:IsA("BasePart") then
+            table.insert(parts, part.Position)
+        end
+    end
+    
+    if #parts == 0 then
+        for _, child in ipairs(targetCharacter:GetChildren()) do
+            if child:IsA("BasePart") then
+                table.insert(parts, child.Position)
             end
         end
     end
-    return offsets
+    
+    if #parts == 0 then
+        table.insert(parts, targetCharacter:GetPivot().Position)
+    end
+    
+    return parts
 end
 
--- =====================================================================
--- == 核心 Ragebot 逻辑 (完全重构的 18 算法轮换与防空枪安全校验)
--- =====================================================================
 local function DoRagebot()
     if not RB_State then Valid_Pair=nil; Locked_Path=nil; return end
     local target=GetTarget()
     if not target or not target.Character then Valid_Pair=nil; Locked_Path=nil; return end
-    
-    -- 安全校验：若目标无生命或已死亡，强制清理并终止射击意图
-    local tHum = target.Character:FindFirstChildOfClass("Humanoid")
-    if not tHum or tHum.Health <= 0 then Valid_Pair=nil; Locked_Path=nil; return end
-
     if Locked_Path and Locked_Path.Target~=target then Locked_Path=nil end
     
     local myRoot=LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
     local tRoot=target.Character:FindFirstChild("HumanoidRootPart")
-    if not myRoot or not tRoot then Valid_Pair=nil; return end
-    
+    if not myRoot or not tRoot then return end
     local myPos=GetLocalRealPosition()
-    local tPos=tRoot.Position
+    
+    local targetPositions = GetTargetParts(target.Character)
+    local tPos = tRoot.Position
+    if #targetPositions > 0 then
+        tPos = targetPositions[1]
+    end
 
-    -- 1. 高性能帧缓存机制检查（确保无多余开销且完美防空枪）
     if Locked_Path then
         local dO=(myPos-Locked_Path.MyPos).Magnitude
         local dH=(tPos-Locked_Path.TPos).Magnitude
@@ -9169,86 +9165,76 @@ local function DoRagebot()
         Locked_Path=nil
     end
 
-    -- 2. 扫描速率帧限制控制 (维持稳定高FPS的核心逻辑)
     if tick()-WB.LastScan < 1/ScanRate then return end
     WB.LastScan=tick()
-    WB.Round=(WB.Round % 18) + 1 -- 18大算法循环轮换计数器
+    WB.Round=(WB.Round % 19) + 1 -- 安全循环轮换19种强力算法
 
-    -- 3. 根据当前地形特征、高低差与 18 大算法进行多维智能分发
     local newOrigin, newTarget
-    local oPole = (tPos - myPos)
-    local heightDiff = tPos.Y - myPos.Y
-    if oPole.Magnitude < 0.001 then return end
-    oPole = oPole.Unit
-    local hPole = -oPole
-
-    local currentAlgoIndex = WB.Round
-    if currentAlgoIndex == 1 then
+    if WB.Round == 1 then
         newOrigin = GetOffsets_Algo1(myPos, tPos, Origin_Radius)
         newTarget = GetOffsets_Algo1(tPos, myPos, Hit_Radius)
-    elseif currentAlgoIndex == 2 then
-        newOrigin = GetOffsets_Algo2(myPos, oPole, Origin_Radius, Origin_Scans or 12)
-        newTarget = GetOffsets_Algo2(tPos, hPole, Hit_Radius, Hit_Scans or 12)
-    elseif currentAlgoIndex == 3 then
-        newOrigin = GetOffsets_Algo3(myPos, oPole, Origin_Radius)
-        newTarget = GetOffsets_Algo3(tPos, hPole, Hit_Radius)
-    elseif currentAlgoIndex == 4 then
-        newOrigin = GetOffsets_Algo4(myPos, Origin_Radius)
-        newTarget = GetOffsets_Algo2(tPos, hPole, Hit_Radius, 8)
-    elseif currentAlgoIndex == 5 then
-        newOrigin = GetOffsets_Algo5(myPos, Origin_Radius)
-        newTarget = GetOffsets_Algo2(tPos, hPole, Hit_Radius, 8)
-    elseif currentAlgoIndex == 6 then
-        if heightDiff > 5 then
-            newOrigin = GetOffsets_Algo6(myPos, Origin_Radius)
-            newTarget = GetOffsets_Algo3(tPos, oPole, Hit_Radius)
-        else
-            newOrigin = GetOffsets_Algo3(myPos, oPole, Origin_Radius)
-            newTarget = GetOffsets_Algo6(tPos, Hit_Radius)
-        end
-    elseif currentAlgoIndex == 7 then
-        newOrigin = GetOffsets_Algo7(myPos, oPole, Origin_Radius)
-        newTarget = GetOffsets_Algo7(tPos, hPole, Hit_Radius)
-    elseif currentAlgoIndex == 8 then
+    elseif WB.Round == 2 then
+        newOrigin = GetOffsets_Algo2(myPos, Origin_Radius, Origin_Scans or 15)
+        newTarget = GetOffsets_Algo2(tPos, Hit_Radius, Hit_Scans or 15)
+    elseif WB.Round == 3 then
+        newOrigin = GetOffsets_Algo3(myPos, Origin_Radius)
+        newTarget = GetOffsets_Algo3(tPos, Hit_Radius)
+    elseif WB.Round == 4 then
+        newOrigin = GetOffsets_Algo4(myPos, tPos, Origin_Radius)
+        newTarget = GetOffsets_Algo4(tPos, myPos, Hit_Radius)
+    elseif WB.Round == 5 then
+        newOrigin = GetOffsets_Algo5(myPos, tPos, Origin_Radius)
+        newTarget = GetOffsets_Algo5(tPos, myPos, Hit_Radius)
+    elseif WB.Round == 6 then
+        newOrigin = GetOffsets_Algo6(myPos, Origin_Radius)
+        newTarget = GetOffsets_Algo6(tPos, Hit_Radius)
+    elseif WB.Round == 7 then
+        newOrigin = GetOffsets_Algo7(myPos, tPos, Origin_Radius)
+        newTarget = GetOffsets_Algo7(tPos, myPos, Hit_Radius)
+    elseif WB.Round == 8 then
         newOrigin = GetOffsets_Algo8(myPos, Origin_Radius)
         newTarget = GetOffsets_Algo8(tPos, Hit_Radius)
-    elseif currentAlgoIndex == 9 then
-        newOrigin = GetOffsets_Algo9(myPos, Origin_Radius, Origin_Scans or 12)
-        newTarget = GetOffsets_Algo9(tPos, Hit_Radius, Hit_Scans or 12)
-    elseif currentAlgoIndex == 10 then
-        newOrigin = GetOffsets_Algo10(myPos, Origin_Radius, Origin_Scans or 10)
-        newTarget = GetOffsets_Algo10(tPos, Hit_Radius, Hit_Scans or 10)
-    elseif currentAlgoIndex == 11 then
+    elseif WB.Round == 9 then
+        newOrigin = GetOffsets_Algo9(myPos, Origin_Radius)
+        newTarget = GetOffsets_Algo9(tPos, Hit_Radius)
+    elseif WB.Round == 10 then
+        newOrigin = GetOffsets_Algo10(myPos, tPos, Origin_Radius)
+        newTarget = GetOffsets_Algo10(tPos, Hit_Radius)
+    elseif WB.Round == 11 then
         newOrigin = GetOffsets_Algo11(myPos, Origin_Radius)
         newTarget = GetOffsets_Algo11(tPos, Hit_Radius)
-    elseif currentAlgoIndex == 12 then
-        newOrigin = GetOffsets_Algo12(myPos, oPole, Origin_Radius)
-        newTarget = GetOffsets_Algo12(tPos, hPole, Hit_Radius)
-    elseif currentAlgoIndex == 13 then
-        newOrigin = GetOffsets_Algo13(myPos, Origin_Radius)
+    elseif WB.Round == 12 then
+        newOrigin = GetOffsets_Algo12(myPos, tPos, Origin_Radius)
+        newTarget = GetOffsets_Algo12(tPos, Hit_Radius)
+    elseif WB.Round == 13 then
+        newOrigin = GetOffsets_Algo13(myPos, tPos, Origin_Radius)
         newTarget = GetOffsets_Algo13(tPos, Hit_Radius)
-    elseif currentAlgoIndex == 14 then
+    elseif WB.Round == 14 then
         newOrigin = GetOffsets_Algo14(myPos, Origin_Radius)
-        newTarget = GetOffsets_Algo6(tPos, Hit_Radius)
-    elseif currentAlgoIndex == 15 then
-        newOrigin = GetOffsets_Algo15(myPos, Origin_Radius)
-        newTarget = GetOffsets_Algo4(tPos, Hit_Radius)
-    elseif currentAlgoIndex == 16 then
-        newOrigin = GetOffsets_Algo16(myPos, Origin_Radius)
-        newTarget = GetOffsets_Algo5(tPos, Hit_Radius)
-    elseif currentAlgoIndex == 17 then
-        newOrigin = GetOffsets_Algo17(myPos, Origin_Radius)
+        newTarget = GetOffsets_Algo14(tPos, Hit_Radius)
+    elseif WB.Round == 15 then
+        newOrigin = GetOffsets_Algo15(myPos, tPos, Origin_Radius)
+        newTarget = GetOffsets_Algo15(tPos, myPos, Hit_Radius)
+    elseif WB.Round == 16 then
+        newOrigin = GetOffsets_Algo16(myPos, tPos, Origin_Radius)
+        newTarget = GetOffsets_Algo16(tPos, myPos, Hit_Radius)
+    elseif WB.Round == 17 then
+        newOrigin = GetOffsets_Algo17(myPos, tPos, Origin_Radius)
         newTarget = GetOffsets_Algo17(tPos, Hit_Radius)
+    elseif WB.Round == 18 then
+        newOrigin = GetOffsets_Algo18(myPos, tPos, Origin_Radius)
+        newTarget = GetOffsets_Algo18(tPos, midPoint and tPos or tPos, Hit_Radius)
     else
-        newOrigin = GetOffsets_Algo18(myPos, Origin_Radius)
-        newTarget = GetOffsets_Algo18(tPos, Hit_Radius)
+        newOrigin = GetOffsets_Algo19(myPos, tPos, Origin_Radius)
+        newTarget = GetOffsets_Algo19(tPos, myPos, Hit_Radius)
     end
 
-    -- 4. 双重嵌套轻量穷举寻路 (兼顾极限暴力穿墙、防空枪与极致FPS优化)
     local bestPO, bestPH = nil, nil
-
-    for _, pO in ipairs(newOrigin) do
-        for _, pH in ipairs(newTarget) do
+    
+    for i = 1, #newOrigin do
+        local pO = newOrigin[i]
+        for j = 1, #newTarget do
+            local pH = newTarget[j]
             if CheckWallbang(pO, pH) then
                 bestPO = pO
                 bestPH = pH
@@ -9258,13 +9244,12 @@ local function DoRagebot()
         if bestPO then break end
     end
 
-    -- 5. 同步更新路径与命中对缓存（完全杜绝无法命中时触发盲目射击）
-    if bestPO then
+    if bestPO and bestPH then
         Locked_Path={AbsO=bestPO,AbsH=bestPH,Target=target,MyPos=myPos,TPos=tPos}
         Valid_Pair={Origin=bestPO,Hit=bestPH,Target=target}
         WB.Cached=false
     else
-        Valid_Pair=nil
+        Valid_Pair = nil
     end
 end
 
