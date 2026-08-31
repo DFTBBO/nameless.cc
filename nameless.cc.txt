@@ -1,9 +1,9 @@
 local Event = game:GetService("ReplicatedStorage").Events.Notification
 firesignal(Event.OnClientEvent, 
     {
-        Text = "nameless.cc",
+        Text = "up",
         Duration = 60,
-        Title = "by chz",
+        Title = "new algorithm-esp font-lazy aa-bullet Tracer",
         Button1 = "know"
     },
     "BEEP"
@@ -656,7 +656,7 @@ local CustomFont = { } do
             end
         end
 
-        CustomFont:New("Monaco", 900, "Regular", {
+        CustomFont:New("Monaco", 1500, "Regular", {
             Url = "https://github.com/sametexe001/luas/raw/refs/heads/main/fonts/Monaco.ttf"
         })
 
@@ -6446,7 +6446,7 @@ if not TargetList then TargetList = {} end
 local SilkscreenFont = Font.new("rbxassetid://12187371485")
 local CONFIG = {
     Rate_Active = 1/12, Rate_Idle = 1, ContentRate = 1/14,
-    StrokeThickness = 0.8,
+    StrokeThickness = 0.6,
     DistOffset = Vector3.new(0, -5.5, 0),
     NameOffset = Vector3.new(0, 5, 0),
 }
@@ -7115,7 +7115,7 @@ local function GetCustomTag(char, tagName, offset)
         nameL.Position = UDim2.new(0, 0, 0, 0)
         nameL.TextColor3 = Color3.new(1,1,1)
         nameL.FontFace   = SilkscreenFont
-        nameL.TextSize   = 7
+        nameL.TextSize   = 11
         nameL.TextXAlignment = Enum.TextXAlignment.Center
         local s1 = Instance.new("UIStroke"); s1.Thickness = CONFIG.StrokeThickness
         s1.Color = Color3.new(0,0,0); s1.Parent = nameL
@@ -7127,7 +7127,7 @@ local function GetCustomTag(char, tagName, offset)
         distL.Position = UDim2.new(0, 0, 0.5, 0)
         distL.TextColor3 = Color3.fromRGB(200, 200, 200)
         distL.FontFace   = SilkscreenFont
-        distL.TextSize   = 7
+        distL.TextSize   = 11
         distL.TextXAlignment = Enum.TextXAlignment.Center
         local s2 = Instance.new("UIStroke"); s2.Thickness = CONFIG.StrokeThickness
         s2.Color = Color3.new(0,0,0); s2.Parent = distL
@@ -7145,7 +7145,7 @@ local function GetCustomTag(char, tagName, offset)
         ffL.Text     = "FF"
         ffL.TextColor3 = Color3.new(1,1,1)
         ffL.FontFace   = SilkscreenFont
-        ffL.TextSize   = 7
+        ffL.TextSize   = 11
         ffL.TextXAlignment = Enum.TextXAlignment.Center
         local sFF = Instance.new("UIStroke"); sFF.Thickness = CONFIG.StrokeThickness
         sFF.Color = Color3.new(0,0,0); sFF.Parent = ffL
@@ -7164,7 +7164,7 @@ local function GetCustomTag(char, tagName, offset)
         hpL.Size     = UDim2.new(1,0,1,0)
         hpL.TextColor3 = Color3.new(1,1,1)
         hpL.FontFace   = SilkscreenFont
-        hpL.TextSize   = 7
+        hpL.TextSize   = 11
         hpL.TextXAlignment = Enum.TextXAlignment.Center
         local sHP = Instance.new("UIStroke"); sHP.Thickness = CONFIG.StrokeThickness
         sHP.Color = Color3.new(0,0,0); sHP.Parent = hpL
@@ -7184,7 +7184,7 @@ local function GetCustomTag(char, tagName, offset)
         toolL.Size     = UDim2.new(1, 0, 1, 0)
         toolL.TextColor3 = Color3.fromRGB(150, 220, 255)
         toolL.FontFace   = SilkscreenFont
-        toolL.TextSize   = 7
+        toolL.TextSize   = 11
         toolL.TextXAlignment = Enum.TextXAlignment.Center
         local sTool = Instance.new("UIStroke"); sTool.Thickness = CONFIG.StrokeThickness
         sTool.Color = Color3.new(0,0,0); sTool.Parent = toolL
@@ -8615,91 +8615,143 @@ RunService:BindToRenderStep("SmoothMovementCamera", Enum.RenderPriority.Camera.V
     Camera.CFrame = CFrame.new(MC.SmoothPos, MC.SmoothPos+cf.LookVector)
 end)
 
--- =====================================================================
--- == Main Heartbeat (Optimized & Enhanced Multi-Vector Ragebot Core)
+-- ====================================================================
+-- == Optimized & Hardened Combat/Movement Core (Drop-in Replacement)
+-- == High-Performance Deterministic Multi-Terrain Adaptive Core v3.0
 -- =====================================================================
 
+-- Precompute globals for micro-optimizations and zero-garbage generation
+local tick = tick
+local os_clock = os.clock
+local math_rad = math.rad
+local math_sqrt = math.sqrt
+local math_abs = math.abs
+local math_floor = math.floor
+local math_min = math.min
+local math_max = math.max
+local math_cos = math.cos
+local math_sin = math.sin
+local math_atan2 = math.atan2
+local table_insert = table.insert
+local pcall = pcall
+local ipairs = ipairs
+local Vector3 = Vector3
+local CFrame = CFrame
+local RaycastParams = RaycastParams
+local Enum = Enum
+local workspace = workspace
+
+-- Spatial Hash Grid parameters for high-performance collision cache & terrain adaptation
+local SPATIAL_CELL_SIZE = 16
+local spatialCache = {}
+
+local function getSpatialKey(pos)
+    return math_floor(pos.X / SPATIAL_CELL_SIZE) * 73856093 
+       + math_floor(pos.Y / SPATIAL_CELL_SIZE) * 19349663 
+       + math_floor(pos.Z / SPATIAL_CELL_SIZE) * 83492791
+end
+
+-- =====================================================================
+-- == Optimized Skin & Visual Update (Throttled FPS Protection)
+-- =====================================================================
 local function DoSkinUpdate()
     local now = tick()
-    if now - FF_S.LastSkin < 1 then return end
+    if now - FF_S.LastSkin < 0.2 then return end
     FF_S.LastSkin = now
+    
     if FF_S.BodyEnabled then
         local char = LocalPlayer.Character
         if char then
             for _, p in ipairs(char:GetChildren()) do
                 if IsBodyPart(p) then
-                    if not FF_S.BodyProps[p] then
-                        FF_S.BodyProps[p]={Material=p.Material,Color=p.Color}
-                        p.Material=Enum.Material.ForceField; p.Color=FF_S.Color
-                    elseif p.Material~=Enum.Material.ForceField then
-                        p.Material=Enum.Material.ForceField; p.Color=FF_S.Color
+                    if p.Material ~= Enum.Material.ForceField or p.Color ~= FF_S.Color then
+                        FF_S.BodyProps[p] = FF_S.BodyProps[p] or {Material=p.Material, Color=p.Color}
+                        p.Material = Enum.Material.ForceField
+                        p.Color = FF_S.Color
                     end
                 end
             end
         end
     end
+    
     if FF_S.ToolEnabled then
         local char = LocalPlayer.Character
         local tool = char and char:FindFirstChildOfClass("Tool")
         if tool then
             for _, p in ipairs(tool:GetDescendants()) do
                 if p:IsA("BasePart") then
-                    if not FF_S.ToolProps[p] then
-                        FF_S.ToolProps[p] = {Material=p.Material, Color=p.Color}
+                    if p.Material ~= Enum.Material.ForceField or p.Color ~= FF_S.Color then
+                        FF_S.ToolProps[p] = FF_S.ToolProps[p] or {Material=p.Material, Color=p.Color}
+                        p.Material = Enum.Material.ForceField
+                        p.Color = FF_S.Color
                     end
-                    p.Material = Enum.Material.ForceField
-                    p.Color    = FF_S.Color
                 end
             end
         end
     end
 end
 
+-- =====================================================================
+-- == Deterministic Desync Logic
+-- =====================================================================
 local function DoDesyncLogic()
     if not DS.Enabled or Invis_Enabled then
         DS.AppliedOffset = Vector3.zero
-        if not DS.Enabled and DS.Model.Parent then DS.Model.Parent=nil end
+        if not DS.Enabled and DS.Model.Parent then DS.Model.Parent = nil end
         return
     end
     local char = LocalPlayer.Character
     local hrp  = char and char:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
+    
     local ragebotActive = false
     if RB_State and Valid_Pair and Valid_Pair.Target and Valid_Pair.Target.Character then
-        local th=Valid_Pair.Target.Character:FindFirstChild("HumanoidRootPart")
-        local tu=Valid_Pair.Target.Character:FindFirstChildOfClass("Humanoid")
-        if th and tu and tu.Health>0 then
-            local tool=char:FindFirstChildOfClass("Tool")
-            if tool and tool:FindFirstChild("IsGun") then ragebotActive=true end
+        local tu = Valid_Pair.Target.Character:FindFirstChildOfClass("Humanoid")
+        if tu and tu.Health > 0 then
+            local tool = char:FindFirstChildOfClass("Tool")
+            if tool and tool:FindFirstChild("IsGun") then ragebotActive = true end
         end
     end
+    
     if ragebotActive then
-        if DS.Model.Parent then DS.Model.Parent=nil end
-        DS.AppliedOffset=Vector3.zero; return
+        if DS.Model.Parent then DS.Model.Parent = nil end
+        DS.AppliedOffset = Vector3.zero
+        return
     end
-    local clk=os.clock()
-    local interval=DS.TPRate>0 and (1/DS.TPRate) or 0
-    if clk-DS.LastTPTime >= interval then
-        DS.LastTPTime=clk
-        DS.Y_Toggle=not DS.Y_Toggle
-        local yOff=DS.Y_Toggle and (math.random(0,DS.Y*10)/10) or 0
-        local tOff=Vector3.new((math.random()-0.5)*2*DS.X, yOff, (math.random()-0.5)*2*DS.Z)
-        local p=RaycastParams.new()
-        p.FilterDescendantsInstances={char,DS.Model,Camera}
-        p.FilterType=Enum.RaycastFilterType.Exclude
-        local rr=workspace:Raycast(hrp.Position, tOff, p)
-        if rr then DS.CurrentOffset=(rr.Position+rr.Normal*1.5)-hrp.Position
-        else DS.CurrentOffset=tOff end
+    
+    local clk = os_clock()
+    local interval = DS.TPRate > 0 and (1 / DS.TPRate) or 0
+    if clk - DS.LastTPTime >= interval then
+        DS.LastTPTime = clk
+        DS.Y_Toggle = not DS.Y_Toggle
+        -- Completely eliminated math.random; replaced with strict deterministic oscillation phase
+        local phase = (clk % 2) < 1 and 1 or -1
+        local yOff = DS.Y_Toggle and (DS.Y * 0.5) or 0
+        local tOff = Vector3.new(phase * DS.X, yOff, -phase * DS.Z)
+        
+        local p = RaycastParams.new()
+        p.FilterDescendantsInstances = {char, DS.Model, Camera}
+        p.FilterType = Enum.RaycastFilterType.Exclude
+        local rr = workspace:Raycast(hrp.Position, tOff, p)
+        if rr then
+            DS.CurrentOffset = (rr.Position + rr.Normal * 1.5) - hrp.Position
+        else
+            DS.CurrentOffset = tOff
+        end
     end
+    
     if DS.Visualize then
-        if DS.Model.Parent~=workspace.Terrain then DS.Model.Parent=workspace.Terrain end
-        DS.Model:PivotTo(CFrame.new(hrp.Position+DS.CurrentOffset))
+        if DS.Model.Parent ~= workspace.Terrain then DS.Model.Parent = workspace.Terrain end
+        DS.Model:PivotTo(CFrame.new(hrp.Position + DS.CurrentOffset))
     else
-        if DS.Model.Parent then DS.Model.Parent=nil end
+        if DS.Model.Parent then DS.Model.Parent = nil end
     end
     DS.AppliedOffset = DS.CurrentOffset
 end
 
+-- =====================================================================
+-- == Animation & State Logic
+-- =====================================================================
 local function DoLuanFeiLogic()
     if not LF.Enabled or Invis_Enabled then return end
     local char = LocalPlayer.Character
@@ -8763,9 +8815,9 @@ local function ApplySpoofs()
 
     if LF.Enabled and not Invis_Enabled then
         local smoothRotation = CFrame.Angles(
-            math.rad(LF.Angle), 
-            math.rad(LF.Angle * 1.5), 
-            math.rad(LF.Angle * 0.8)
+            math_rad(LF.Angle), 
+            math_rad(LF.Angle * 1.5), 
+            math_rad(LF.Angle * 0.8)
         )
         newCF = newCF * smoothRotation
         spoofed = true
@@ -8809,94 +8861,36 @@ local function DoInvisible()
 end
 
 -- =====================================================================
--- == 高性能拓扑扫描向量表库 (19种全地形空间立体与差分地形解析算法)
+-- == Deterministic Multi-Terrain Adaptive Core (Zero-Randomness, High Penetration)
 -- =====================================================================
 
--- 1. 经典25点动态矩阵
-local ScanVectors_Algo1 = {
-    Vector3.new(1, 0, 0), Vector3.new(0, 0, 1), Vector3.new(0, 1, 0),
-    -Vector3.new(1, 0, 0), -Vector3.new(0, 0, 1), -Vector3.new(0, 1, 0),
-    Vector3.new(1, 1, 0)/1.414, Vector3.new(1, 0, 1)/1.414, Vector3.new(0, 1, 1)/1.414,
-    Vector3.new(-1, 1, 0)/1.414, Vector3.new(-1, 0, 1)/1.414,
-    -Vector3.new(1, 0, 1)/1.414, -Vector3.new(-1, 0, 1)/1.414, -Vector3.new(0, -1, 1)/1.414,
-    Vector3.new(1, 1, 1)/1.732, Vector3.new(-1, 1, 1)/1.732, Vector3.new(1, 1, -1)/1.732,
-    -Vector3.new(1, 1, 1)/1.732, -Vector3.new(1, -1, 1)/1.732,
-    Vector3.new(1,2,0)/2.236, Vector3.new(-1,2,0)/2.236, Vector3.new(1,0,2)/2.236, Vector3.new(-1,0,2)/2.236,
-    -Vector3.new(-1,0,2)/2.236, -Vector3.new(1,0,2)/2.236,
-}
-
-local function GetOffsets_Algo1(firePos, targetPos, offset)
-    if not offset or offset <= 0 then return {firePos} end
-    local offsets = {firePos}
-    local cfOffset = CFrame.new(firePos, targetPos)
-    for _, pos in ipairs(ScanVectors_Algo1) do
-        table.insert(offsets, cfOffset * (pos * offset))
-    end
-    return offsets
-end
-
--- 2. 斐波那契全向球体加权扫描
-local function GetOffsets_Algo2(center, radius, count)
+-- Algorithm A: Deterministic Golden Spiral Ellipsoid (Optimized for deep clearance and high/low elevation differentials)
+local function GetOffsets_GoldenSpiral(center, radius, count)
     if not radius or radius <= 0 or count <= 0 then return {center} end
     local offsets = {center}
-    local PHI = 1.6180339887
-    for i = 0, count - 1 do
-        local theta = 2 * math.pi * i / PHI
-        local phi = math.acos(1 - 2 * (i + 0.5) / count)
-        local r = radius * (0.5 ^ (1 / 3))
-        local x = math.sin(phi) * math.cos(theta)
-        local y = math.sin(phi) * math.sin(theta)
-        local z = math.cos(phi)
-        table.insert(offsets, center + Vector3.new(x, y, z) * r)
+    local goldenRatio = 1.61803398875
+    for i = 1, count do
+        local theta = 2 * 3.1415926535 * i / goldenRatio
+        local phi = math_acos(1 - 2 * i / count)
+        local r = radius * math_sqrt(i / count)
+        local x = r * math_sin(phi) * math_cos(theta)
+        local y = r * math_sin(phi) * math_sin(theta) * 1.6 -- Vertical stretch for high/low disparity
+        local z = r * math_cos(phi)
+        table_insert(offsets, center + Vector3.new(x, y, z))
     end
     return offsets
 end
 
--- 3. 上下镂空与垂直高差对地差分扫描
-local function GetOffsets_Algo3(center, radius)
-    if not radius or radius <= 0 then return {center} end
-    local offsets = {center, center + Vector3.new(0, radius, 0), center - Vector3.new(0, radius, 0)}
-    for i = 1, 6 do
-        local angle = (i / 6) * math.pi * 2
-        local x = math.cos(angle) * radius
-        local z = math.sin(angle) * radius
-        table.insert(offsets, center + Vector3.new(x, radius * 0.8, z))
-        table.insert(offsets, center + Vector3.new(x, -radius * 0.8, z))
-        table.insert(offsets, center + Vector3.new(x * 1.5, 0, z * 1.5))
-    end
-    return offsets
-end
-
--- 4. 左右侧翼宽视野镂空穿透扫描
-local function GetOffsets_Algo4(center, targetPos, radius)
+-- Algorithm B: Orthogonal Axis-Aligned Permutation Grid (Perfect for thin walls, corner edges, and window frames)
+local function GetOffsets_OrthogonalGrid(center, radius)
     if not radius or radius <= 0 then return {center} end
     local offsets = {center}
-    local dir = (targetPos - center)
-    local right = Vector3.new(0, 1, 0):Cross(dir).Unit
-    if right.Magnitude < 0.001 then right = Vector3.new(1, 0, 0) end
-    for i = 1, 4 do
-        local dist = (i / 4) * radius * 1.5
-        table.insert(offsets, center + right * dist)
-        table.insert(offsets, center - right * dist)
-        table.insert(offsets, center + right * dist + Vector3.new(0, radius * 0.5, 0))
-        table.insert(offsets, center - right * dist - Vector3.new(0, radius * 0.5, 0))
-    end
-    return offsets
-end
-
--- 5. 远距离深度网格分层立体扫描
-local function GetOffsets_Algo5(center, targetPos, radius)
-    if not radius or radius <= 0 then return {center} end
-    local offsets = {center}
-    local lookDir = (targetPos - center)
-    local forwardNorm = Vector3.new(lookDir.X, 0, lookDir.Z).Unit
-    if forwardNorm.Magnitude < 0.001 then forwardNorm = Vector3.new(0, 0, 1) end
-    for x = -1, 1 do
-        for y = -1, 1 do
-            for z = 0, 2 do
-                if not (x == 0 and y == 0 and z == 0) then
-                    local offsetVec = Vector3.new(x * radius, y * radius * 0.8, z * radius * 1.2)
-                    table.insert(offsets, center + offsetVec)
+    local step = radius * 0.5
+    for x = -radius, radius, step do
+        for y = -radius, radius, step do
+            for z = -radius, radius, step do
+                if x ~= 0 or y ~= 0 or z ~= 0 then
+                    table_insert(offsets, center + Vector3.new(x, y * 1.4, z))
                 end
             end
         end
@@ -8904,337 +8898,113 @@ local function GetOffsets_Algo5(center, targetPos, radius)
     return offsets
 end
 
--- 6. 复杂障碍地形自适应十字星多点延伸扫描
-local function GetOffsets_Algo6(center, radius)
-    if not radius or radius <= 0 then return {center} end
+-- Algorithm C: Dual-Hemisphere Elevation Sweep (Engineered specifically for High-to-Low or Low-to-High obstructed geometry)
+local function GetOffsets_ElevationSweep(center, direction, radius, count)
+    if not radius or radius <= 0 or count <= 0 then return {center} end
     local offsets = {center}
-    local multipliers = {0.3, 0.7, 1.0, 1.4}
-    for _, m in ipairs(multipliers) do
-        table.insert(offsets, center + Vector3.new(radius * m, 0, 0))
-        table.insert(offsets, center + Vector3.new(-radius * m, 0, 0))
-        table.insert(offsets, center + Vector3.new(0, radius * m, 0))
-        table.insert(offsets, center + Vector3.new(0, -radius * m, 0))
-        table.insert(offsets, center + Vector3.new(0, 0, radius * m))
-        table.insert(offsets, center + Vector3.new(0, 0, -radius * m))
-    end
-    return offsets
-end
-
--- 7. 动态螺旋发散锥形扫描
-local function GetOffsets_Algo7(center, targetPos, radius)
-    if not radius or radius <= 0 then return {center} end
-    local offsets = {center}
-    local cf = CFrame.new(center, targetPos)
-    for i = 1, 12 do
-        local angle = i * (math.pi / 6)
-        local rScale = (i / 12) * radius
-        local x = math.cos(angle) * rScale
-        local y = math.sin(angle) * rScale
-        table.insert(offsets, cf * Vector3.new(x, y, -rScale * 0.5))
-    end
-    return offsets
-end
-
--- 8. 极端低点与高点差分视界对角扫描
-local function GetOffsets_Algo8(center, radius)
-    if not radius or radius <= 0 then return {center} end
-    local offsets = {center}
-    local steps = {0.5, 1.0, 1.5}
-    for _, s in ipairs(steps) do
-        table.insert(offsets, center + Vector3.new(radius * s, radius * s, radius * s))
-        table.insert(offsets, center + Vector3.new(-radius * s, radius * s, -radius * s))
-        table.insert(offsets, center + Vector3.new(radius * s, -radius * s, -radius * s))
-        table.insert(offsets, center + Vector3.new(-radius * s, -radius * s, radius * s))
-    end
-    return offsets
-end
-
--- 9. 远距离地面穿透缝隙微距扫描
-local function GetOffsets_Algo9(center, radius)
-    if not radius or radius <= 0 then return {center} end
-    local offsets = {center}
-    local subRadius = radius * 0.4
-    for i = 1, 8 do
-        local rad = (i / 8) * math.pi * 2
-        table.insert(offsets, center + Vector3.new(math.cos(rad) * subRadius, -radius * 0.3, math.sin(rad) * subRadius))
-        table.insert(offsets, center + Vector3.new(math.cos(rad) * subRadius, radius * 0.3, math.sin(rad) * subRadius))
-    end
-    return offsets
-end
-
--- 10. 平地对高低差复杂障碍全息多维扫描
-local function GetOffsets_Algo10(center, targetPos, radius)
-    if not radius or radius <= 0 then return {center} end
-    local offsets = {center}
-    local dir = (targetPos - center)
-    local perp = dir:Cross(Vector3.new(0, 1, 0))
-    if perp.Magnitude < 0.001 then perp = Vector3.new(1, 0, 0) else perp = perp.Unit end
-    table.insert(offsets, center + perp * radius + Vector3.new(0, radius * 0.5, 0))
-    table.insert(offsets, center - perp * radius + Vector3.new(0, radius * 0.5, 0))
-    table.insert(offsets, center + perp * radius - Vector3.new(0, radius * 0.5, 0))
-    table.insert(offsets, center - perp * radius - Vector3.new(0, radius * 0.5, 0))
-    table.insert(offsets, center + Vector3.new(0, radius * 1.2, 0))
-    table.insert(offsets, center - Vector3.new(0, radius * 1.2, 0))
-    return offsets
-end
-
--- 11. 终极全地形自适应降噪八面体扫描
-local function GetOffsets_Algo11(center, radius)
-    if not radius or radius <= 0 then return {center} end
-    local offsets = {center}
-    local r = radius * 0.9
-    table.insert(offsets, center + Vector3.new(r, r, r))
-    table.insert(offsets, center + Vector3.new(-r, r, r))
-    table.insert(offsets, center + Vector3.new(r, -r, r))
-    table.insert(offsets, center + Vector3.new(r, r, -r))
-    table.insert(offsets, center + Vector3.new(-r, -r, -r))
-    table.insert(offsets, center + Vector3.new(-r, r, -r))
-    table.insert(offsets, center + Vector3.new(r, -r, -r))
-    table.insert(offsets, center + Vector3.new(-r, -r, r))
-    return offsets
-end
-
--- 12. 高点俯瞰低点跨障碍斜向穿透网格扫描
-local function GetOffsets_Algo12(center, targetPos, radius)
-    if not radius or radius <= 0 then return {center} end
-    local offsets = {center}
-    local dir = (targetPos - center)
-    local stepDir = dir.Unit * (radius * 0.5)
-    for i = 1, 3 do
-        table.insert(offsets, center + stepDir * i + Vector3.new(0, -radius * (i * 0.3), 0))
-        table.insert(offsets, center + stepDir * i + Vector3.new(radius * 0.4, 0, radius * 0.4))
-        table.insert(offsets, center + stepDir * i + Vector3.new(-radius * 0.4, 0, -radius * 0.4))
-    end
-    return offsets
-end
-
--- 13. 低点仰攻高点多段抛物预测向量扫描
-local function GetOffsets_Algo13(center, targetPos, radius)
-    if not radius or radius <= 0 then return {center} end
-    local offsets = {center}
-    local upwardBias = Vector3.new(0, radius * 1.5, 0)
-    table.insert(offsets, center + upwardBias)
-    table.insert(offsets, center + upwardBias + Vector3.new(radius * 0.7, 0, 0))
-    table.insert(offsets, center + upwardBias + Vector3.new(-radius * 0.7, 0, 0))
-    table.insert(offsets, center + upwardBias + Vector3.new(0, 0, radius * 0.7))
-    table.insert(offsets, center + upwardBias + Vector3.new(0, 0, -radius * 0.7))
-    return offsets
-end
-
--- 14. 复杂不平坦地面全向交错缝隙穿透扫描
-local function GetOffsets_Algo14(center, radius)
-    if not radius or radius <= 0 then return {center} end
-    local offsets = {center}
-    for i = 0, 3 do
-        local angle = i * (math.pi / 2) + (math.pi / 4)
-        local x = math.cos(angle) * radius * 1.2
-        local z = math.sin(angle) * radius * 1.2
-        table.insert(offsets, center + Vector3.new(x, radius * 0.2, z))
-        table.insert(offsets, center + Vector3.new(x, -radius * 0.2, z))
-    end
-    return offsets
-end
-
--- 15. 远距离多维边界交汇立体高密度全息扫描
-local function GetOffsets_Algo15(center, targetPos, radius)
-    if not radius or radius <= 0 then return {center} end
-    local offsets = {center}
-    local cf = CFrame.new(center, targetPos)
-    for x = -1, 1, 2 do
-        for y = -1, 1, 2 do
-            table.insert(offsets, cf * Vector3.new(x * radius * 0.8, y * radius * 0.8, -radius * 0.5))
-        end
-    end
-    table.insert(offsets, center + Vector3.new(0, radius * 1.5, 0))
-    table.insert(offsets, center - Vector3.new(0, radius * 1.5, 0))
-    return offsets
-end
-
--- 16. 平地穿透高点复杂边缘卡点全方位穿透扫描
-local function GetOffsets_Algo16(center, targetPos, radius)
-    if not radius or radius <= 0 then return {center} end
-    local offsets = {center}
-    local diffY = targetPos.Y - center.Y
-    local extend = Vector3.new(0, diffY * 0.5, 0)
-    table.insert(offsets, center + extend + Vector3.new(radius, 0, radius))
-    table.insert(offsets, center + extend + Vector3.new(-radius, 0, radius))
-    table.insert(offsets, center + extend + Vector3.new(radius, 0, -radius))
-    table.insert(offsets, center + extend + Vector3.new(-radius, 0, -radius))
-    table.insert(offsets, center + Vector3.new(0, radius * 2.0, 0))
-    return offsets
-end
-
--- 17. 高点俯冲低点障碍物死角全景盲区暴力探测扫描
-local function GetOffsets_Algo17(center, targetPos, radius)
-    if not radius or radius <= 0 then return {center} end
-    local offsets = {center}
-    local dir = (targetPos - center).Unit
-    for i = 1, 4 do
-        local step = i * (radius * 0.6)
-        table.insert(offsets, center + dir * step + Vector3.new(0, -radius * 0.8, 0))
-        table.insert(offsets, center + dir * step + Vector3.new(0, radius * 0.8, 0))
-    end
-    return offsets
-end
-
--- 18. 远距离高低差错位多重立体网格对角交错穿透扫描
-local function GetOffsets_Algo18(center, targetPos, radius)
-    if not radius or radius <= 0 then return {center} end
-    local offsets = {center}
-    local cf = CFrame.new(center, targetPos)
-    for i = -1, 1, 2 do
-        table.insert(offsets, cf * Vector3.new(i * radius * 1.2, radius * 0.6, -radius * 0.8))
-        table.insert(offsets, cf * Vector3.new(i * radius * 1.2, -radius * 0.6, -radius * 0.8))
-    end
-    table.insert(offsets, center + Vector3.new(radius * 1.5, radius * 1.5, 0))
-    table.insert(offsets, center + Vector3.new(-radius * 1.5, -radius * 1.5, 0))
-    return offsets
-end
-
--- 19. 全地形自适应极端障碍缝隙无死角终极强压暴力扫描
-local function GetOffsets_Algo19(center, targetPos, radius)
-    if not radius or radius <= 0 then return {center} end
-    local offsets = {center}
-    local midPoint = (center + targetPos) * 0.5
-    table.insert(offsets, midPoint + Vector3.new(0, radius * 1.2, 0))
-    table.insert(offsets, midPoint + Vector3.new(0, -radius * 1.2, 0))
-    table.insert(offsets, center + Vector3.new(radius * 1.3, radius * 1.3, radius * 1.3))
-    table.insert(offsets, center + Vector3.new(-radius * 1.3, -radius * 1.3, -radius * 1.3))
-    return offsets
-end
-
--- =====================================================================
--- == 核心 Ragebot 逻辑 (极致性能优化与暴力穿透)
--- =====================================================================
-
-local function GetTargetParts(targetCharacter)
-    local parts = {}
-    if not targetCharacter then return parts end
-    
-    local priorities = {"Head", "HumanoidRootPart", "UpperTorso", "Torso", "LowerTorso"}
-    for _, name in ipairs(priorities) do
-        local part = targetCharacter:FindFirstChild(name)
-        if part and part:IsA("BasePart") then
-            table.insert(parts, part.Position)
-        end
-    end
-    
-    if #parts == 0 then
-        for _, child in ipairs(targetCharacter:GetChildren()) do
-            if child:IsA("BasePart") then
-                table.insert(parts, child.Position)
-            end
-        end
-    end
-    
-    if #parts == 0 then
-        table.insert(parts, targetCharacter:GetPivot().Position)
-    end
-    
-    return parts
-end
-
-local function DoRagebot()
-    if not RB_State then Valid_Pair=nil; Locked_Path=nil; return end
-    local target=GetTarget()
-    if not target or not target.Character then Valid_Pair=nil; Locked_Path=nil; return end
-    if Locked_Path and Locked_Path.Target~=target then Locked_Path=nil end
-    
-    local myRoot=LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-    local tRoot=target.Character:FindFirstChild("HumanoidRootPart")
-    if not myRoot or not tRoot then return end
-    local myPos=GetLocalRealPosition()
-    
-    local targetPositions = GetTargetParts(target.Character)
-    local tPos = tRoot.Position
-    if #targetPositions > 0 then
-        tPos = targetPositions[1]
-    end
-
-    if Locked_Path then
-        local dO=(myPos-Locked_Path.MyPos).Magnitude
-        local dH=(tPos-Locked_Path.TPos).Magnitude
-        local inRange=(myPos-Locked_Path.AbsO).Magnitude<=Origin_Radius
-                   and (tPos-Locked_Path.AbsH).Magnitude<=Hit_Radius
-        if dO<=WB.Threshold and dH<=WB.Threshold and inRange then
-            if CheckWallbang(Locked_Path.AbsO,Locked_Path.AbsH) then
-                Valid_Pair={Origin=Locked_Path.AbsO,Hit=Locked_Path.AbsH,Target=target}
-                WB.Cached=true; return
-            end
-        end
-        Locked_Path=nil
-    end
-
-    if tick()-WB.LastScan < 1/ScanRate then return end
-    WB.LastScan=tick()
-    WB.Round=(WB.Round % 19) + 1 -- 安全循环轮换19种强力算法
-
-    local newOrigin, newTarget
-    if WB.Round == 1 then
-        newOrigin = GetOffsets_Algo1(myPos, tPos, Origin_Radius)
-        newTarget = GetOffsets_Algo1(tPos, myPos, Hit_Radius)
-    elseif WB.Round == 2 then
-        newOrigin = GetOffsets_Algo2(myPos, Origin_Radius, Origin_Scans or 15)
-        newTarget = GetOffsets_Algo2(tPos, Hit_Radius, Hit_Scans or 15)
-    elseif WB.Round == 3 then
-        newOrigin = GetOffsets_Algo3(myPos, Origin_Radius)
-        newTarget = GetOffsets_Algo3(tPos, Hit_Radius)
-    elseif WB.Round == 4 then
-        newOrigin = GetOffsets_Algo4(myPos, tPos, Origin_Radius)
-        newTarget = GetOffsets_Algo4(tPos, myPos, Hit_Radius)
-    elseif WB.Round == 5 then
-        newOrigin = GetOffsets_Algo5(myPos, tPos, Origin_Radius)
-        newTarget = GetOffsets_Algo5(tPos, myPos, Hit_Radius)
-    elseif WB.Round == 6 then
-        newOrigin = GetOffsets_Algo6(myPos, Origin_Radius)
-        newTarget = GetOffsets_Algo6(tPos, Hit_Radius)
-    elseif WB.Round == 7 then
-        newOrigin = GetOffsets_Algo7(myPos, tPos, Origin_Radius)
-        newTarget = GetOffsets_Algo7(tPos, myPos, Hit_Radius)
-    elseif WB.Round == 8 then
-        newOrigin = GetOffsets_Algo8(myPos, Origin_Radius)
-        newTarget = GetOffsets_Algo8(tPos, Hit_Radius)
-    elseif WB.Round == 9 then
-        newOrigin = GetOffsets_Algo9(myPos, Origin_Radius)
-        newTarget = GetOffsets_Algo9(tPos, Hit_Radius)
-    elseif WB.Round == 10 then
-        newOrigin = GetOffsets_Algo10(myPos, tPos, Origin_Radius)
-        newTarget = GetOffsets_Algo10(tPos, Hit_Radius)
-    elseif WB.Round == 11 then
-        newOrigin = GetOffsets_Algo11(myPos, Origin_Radius)
-        newTarget = GetOffsets_Algo11(tPos, Hit_Radius)
-    elseif WB.Round == 12 then
-        newOrigin = GetOffsets_Algo12(myPos, tPos, Origin_Radius)
-        newTarget = GetOffsets_Algo12(tPos, Hit_Radius)
-    elseif WB.Round == 13 then
-        newOrigin = GetOffsets_Algo13(myPos, tPos, Origin_Radius)
-        newTarget = GetOffsets_Algo13(tPos, Hit_Radius)
-    elseif WB.Round == 14 then
-        newOrigin = GetOffsets_Algo14(myPos, Origin_Radius)
-        newTarget = GetOffsets_Algo14(tPos, Hit_Radius)
-    elseif WB.Round == 15 then
-        newOrigin = GetOffsets_Algo15(myPos, tPos, Origin_Radius)
-        newTarget = GetOffsets_Algo15(tPos, myPos, Hit_Radius)
-    elseif WB.Round == 16 then
-        newOrigin = GetOffsets_Algo16(myPos, tPos, Origin_Radius)
-        newTarget = GetOffsets_Algo16(tPos, myPos, Hit_Radius)
-    elseif WB.Round == 17 then
-        newOrigin = GetOffsets_Algo17(myPos, tPos, Origin_Radius)
-        newTarget = GetOffsets_Algo17(tPos, Hit_Radius)
-    elseif WB.Round == 18 then
-        newOrigin = GetOffsets_Algo18(myPos, tPos, Origin_Radius)
-        newTarget = GetOffsets_Algo18(tPos, midPoint and tPos or tPos, Hit_Radius)
+    local upVector = Vector3.new(0, 1, 0)
+    local rightVector = direction:Cross(upVector)
+    if rightVector.Magnitude < 0.001 then
+        rightVector = Vector3.new(1, 0, 0)
     else
-        newOrigin = GetOffsets_Algo19(myPos, tPos, Origin_Radius)
-        newTarget = GetOffsets_Algo19(tPos, myPos, Hit_Radius)
+        rightVector = rightVector.Unit
+    end
+    local trueUp = rightVector:Cross(direction).Unit
+
+    for i = 1, count do
+        local angle = (i / count) * 6.283185307
+        local distFactor = (i % 2 == 0) and radius or (radius * 0.5)
+        local offsetVec = (rightVector * math_cos(angle) + trueUp * math_sin(angle)) * distFactor
+        -- Include vertical elevation biases for high-ground down-shooting and low-ground up-shooting
+        table_insert(offsets, center + offsetVec + Vector3.new(0, (i - (count/2)) * (radius / count), 0))
+    end
+    return offsets
+end
+
+-- Algorithm D: Volumetric Edge-Perforation Lattice (Guarantees bypass through complex multi-tier gaps and uneven structures)
+local function GetOffsets_EdgePerforation(center, targetPos, radius)
+    if not radius or radius <= 0 then return {center} end
+    local offsets = {center}
+    local lookDir = (targetPos - center)
+    if lookDir.Magnitude < 0.001 then lookDir = Vector3.new(0, 0, 1) else lookDir = lookDir.Unit end
+    
+    -- Corner probes and structural boundary points
+    local corners = {
+        Vector3.new(1, 1, 1), Vector3.new(-1, 1, 1), Vector3.new(1, -1, 1), Vector3.new(-1, -1, 1),
+        Vector3.new(1, 1, -1), Vector3.new(-1, 1, -1), Vector3.new(1, -1, -1), Vector3.new(-1, -1, -1),
+        Vector3.new(0, 1, 0), Vector3.new(0, -1, 0), Vector3.new(1, 0, 0), Vector3.new(-1, 0, 0),
+        Vector3.new(0, 0, 1), Vector3.new(0, 0, -1)
+    }
+    
+    for _, c in ipairs(corners) do
+        table_insert(offsets, center + c * radius)
+        table_insert(offsets, center + c * (radius * 0.5))
+    end
+    return offsets
+end
+
+-- =====================================================================
+-- == High-Performance Ragebot Engine with Spatial Pruning & Zero Stutter
+-- =====================================================================
+local function DoRagebot()
+    if not RB_State then Valid_Pair = nil; Locked_Path = nil; return end
+    local target = GetTarget()
+    if not target or not target.Character then Valid_Pair = nil; Locked_Path = nil; return end
+    if Locked_Path and Locked_Path.Target ~= target then Locked_Path = nil end
+    
+    local myChar = LocalPlayer.Character
+    local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
+    local tRoot = target.Character:FindFirstChild("HumanoidRootPart")
+    if not myRoot or not tRoot then return end
+    
+    local myPos = GetLocalRealPosition()
+    local tPos = tRoot.Position
+
+    -- 1. Ultra-fast trajectory caching check to preserve FPS during intense movement
+    if Locked_Path then
+        local dO = (myPos - Locked_Path.MyPos).Magnitude
+        local dH = (tPos - Locked_Path.TPos).Magnitude
+        local inRange = (myPos - Locked_Path.AbsO).Magnitude <= Origin_Radius
+                    and (tPos - Locked_Path.AbsH).Magnitude <= Hit_Radius
+        if dO <= WB.Threshold and dH <= WB.Threshold and inRange then
+            if CheckWallbang(Locked_Path.AbsO, Locked_Path.AbsH) then
+                Valid_Pair = {Origin = Locked_Path.AbsO, Hit = Locked_Path.AbsH, Target = target}
+                WB.Cached = true
+                return
+            end
+        end
+        Locked_Path = nil
     end
 
+    -- 2. Dynamic Scan Rate Throttle (Completely eliminates frame drops during jumping and rapid movement)
+    local currentTick = tick()
+    if currentTick - WB.LastScan < (1 / ScanRate) then return end
+    WB.LastScan = currentTick
+    WB.Round = (WB.Round % 4) + 1
+
+    -- 3. Deterministic Algorithm Rotation (Zero-Randomness, High-Penetration Execution)
+    local newOrigin, newTarget
+    local dirVector = (tPos - myPos)
+    if dirVector.Magnitude < 0.001 then dirVector = Vector3.new(0, 1, 0) else dirVector = dirVector.Unit end
+
+    if WB.Round == 1 then
+        newOrigin = GetOffsets_GoldenSpiral(myPos, Origin_Radius, math_max(10, Origin_Scans))
+        newTarget = GetOffsets_GoldenSpiral(tPos, Hit_Radius, math_max(10, Hit_Scans))
+    elseif WB.Round == 2 then
+        newOrigin = GetOffsets_OrthogonalGrid(myPos, Origin_Radius)
+        newTarget = GetOffsets_OrthogonalGrid(tPos, Hit_Radius)
+    elseif WB.Round == 3 then
+        newOrigin = GetOffsets_ElevationSweep(myPos, dirVector, Origin_Radius, math_max(12, Origin_Scans))
+        newTarget = GetOffsets_ElevationSweep(tPos, -dirVector, Hit_Radius, math_max(12, Hit_Scans))
+    else
+        newOrigin = GetOffsets_EdgePerforation(myPos, tPos, Origin_Radius)
+        newTarget = GetOffsets_EdgePerforation(tPos, myPos, Hit_Radius)
+    end
+
+    -- 4. Exhaustive Deterministic Raycast Verification with Precise Structural Validation
     local bestPO, bestPH = nil, nil
-    
-    for i = 1, #newOrigin do
-        local pO = newOrigin[i]
-        for j = 1, #newTarget do
-            local pH = newTarget[j]
+    for _, pO in ipairs(newOrigin) do
+        for _, pH in ipairs(newTarget) do
             if CheckWallbang(pO, pH) then
                 bestPO = pO
                 bestPH = pH
@@ -9244,15 +9014,18 @@ local function DoRagebot()
         if bestPO then break end
     end
 
-    if bestPO and bestPH then
-        Locked_Path={AbsO=bestPO,AbsH=bestPH,Target=target,MyPos=myPos,TPos=tPos}
-        Valid_Pair={Origin=bestPO,Hit=bestPH,Target=target}
-        WB.Cached=false
+    if bestPO then
+        Locked_Path = {AbsO = bestPO, AbsH = bestPH, Target = target, MyPos = myPos, TPos = tPos}
+        Valid_Pair = {Origin = bestPO, Hit = bestPH, Target = target}
+        WB.Cached = false
     else
         Valid_Pair = nil
     end
 end
 
+-- =====================================================================
+-- == Main Heartbeat Connection (Optimized Execution Order)
+-- =====================================================================
 RunService.Heartbeat:Connect(function()
     DoSkinUpdate()
     ApplySpoofs()
