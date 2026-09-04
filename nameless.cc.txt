@@ -1,9 +1,9 @@
 local Event = game:GetService("ReplicatedStorage").Events.Notification
 firesignal(Event.OnClientEvent, 
     {
-        Text = "up",
+        Text = "up!",
         Duration = 60,
-        Title = "new algorithm-esp font-lazy aa-bullet Tracer",
+        Title = "new wallbang",
         Button1 = "know"
     },
     "BEEP"
@@ -7533,32 +7533,141 @@ local function updatePlayerBoxes(p)
 end
 local function refreshAllESP() for _,p in pairs(Players:GetPlayers()) do updatePlayerBoxes(p) end end
 
+-- ==================== [ 全局缓存与高性能初始化 ] ====================
+local MaxWallThickness = 24 -- 允许最大穿墙厚度（格）
+local Debug_Rays = Debug_Rays or false
+
+-- 1. 缓存固定参数，避免频繁 GC (FPS 优化)
+local cachedParams = RaycastParams.new()
+cachedParams.FilterType = Enum.RaycastFilterType.Exclude
+cachedParams.IgnoreWater = true
+
+-- 2. Debug 射线对象池 (避免反复 Instance.new 拖慢 FPS)
+local rayPool = {}
+local function GetDebugPart()
+    for _, p in ipairs(rayPool) do
+        if not p.Parent then return p end
+    end
+    local rp = Instance.new("Part")
+    rp.Anchored = true
+    rp.CanCollide = false
+    rp.Material = Enum.Material.Neon
+    table.insert(rayPool, rp)
+    return rp
+end
+
+-- ==================== [ 重构：基础与可视化函数 ] ====================
+
 local function GetRandomOffset(r)
-    if r<=0.1 then return Vector3.zero end
-    return Vector3.new(math.random(-100,100),math.random(-100,100),math.random(-100,100)).Unit*(math.random()*r)
+    if r <= 0.1 then return Vector3.zero end
+    -- 优化随机分布向量计算
+    return (Vector3.new(math.random() - 0.5, math.random() - 0.5, math.random() - 0.5).Unit) * (math.random() * r)
 end
 
 local function VisualizeRay(o, t, col)
     if not Debug_Rays then return end
-    local d=(t-o).Magnitude; if d<0.1 then return end
-    local rp=Instance.new("Part"); rp.Anchored=true; rp.CanCollide=false; rp.Material=Enum.Material.Neon; rp.Color=col
-    rp.Size=Vector3.new(0.05,0.05,d); rp.CFrame=CFrame.lookAt(o,t)*CFrame.new(0,0,-d/2); rp.Parent=Workspace; Debris:AddItem(rp,1)
+    local d = (t - o).Magnitude
+    if d < 0.1 then return end
+    
+    local rp = GetDebugPart()
+    rp.Color = col
+    rp.Size = Vector3.new(0.05, 0.05, d)
+    rp.CFrame = CFrame.lookAt(o, t) * CFrame.new(0, 0, -d/2)
+    rp.Parent = Workspace
+    
+    task.delay(1, function()
+        rp.Parent = nil
+    end)
 end
+
+-- ==================== [ 高性能场景结构重定向 (地图穿透优化) ] ====================
+-- 将地图特定碰撞部件重定向至角色层，确保多重穿透逻辑对特定复合掩体生效
+task.spawn(function()
+    local success, err = pcall(function()
+        local mapParts = game:GetService('Workspace'):FindFirstChild('Map')
+        if mapParts then
+            mapParts = mapParts:FindFirstChild('Parts')
+            if mapParts then
+                mapParts = mapParts:FindFirstChild('M_Parts')
+                if mapParts then
+                    local charactersFolder = game:GetService('Workspace'):FindFirstChild('Characters')
+                    if charactersFolder then
+                        mapParts.Parent = charactersFolder
+                    end
+                end
+            end
+        end
+    end)
+    if not success and Debug_Rays then
+        warn("Map parts redirection failed: ", err)
+    end
+end)
+
+-- ==================== [ 重构：高级 6 重穿透逻辑 CheckWallbang ] ====================
 
 local function CheckWallbang(p1, p2)
-    local params=RaycastParams.new()
-    params.FilterDescendantsInstances={LocalPlayer.Character,Camera}
-    params.FilterType=Enum.RaycastFilterType.Exclude
-    local d=(p2-p1).Magnitude
-    local r=Workspace:Raycast(p1,(p2-p1).Unit*d,params)
-    
-    -- 修改为：如果没有碰到障碍物，或者障碍物距离目标点小于等于 15 格（允许15格穿墙）
-    local ok=not r or (r.Position-p2).Magnitude<=24 
-    
-    if Debug_Rays then VisualizeRay(p1, ok and p2 or (r and r.Position or p2), ok and Color3.new(0,1,0) or Color3.new(1,0,0)) end
-    return ok
+    -- 更新过滤名单 (避免每一帧重新新建 Table)
+    local char = LocalPlayer.Character
+    cachedParams.FilterDescendantsInstances = {char, Camera}
+
+    local dir = p2 - p1
+    local dist = dir.Magnitude
+    if dist < 0.1 then return true end
+    local unitDir = dir.Unit
+
+    -- 思路 1: 空间预剪裁 (超远距离无视计算，极速提升 FPS)
+    if dist > 2000 then return false end 
+
+    -- 思路 2: 使用体积测量 (Spherecast) 替代普通单点 Raycast
+    -- 能有效对付小柱子、铁丝网、镂空栏杆等复杂掩体
+    local hitForward = Workspace:Spherecast(p1, 0.25, unitDir * dist, cachedParams)
+
+    -- 如果前方没有任何物理阻挡，直接判定可穿透
+    if not hitForward then
+        if Debug_Rays then VisualizeRay(p1, p2, Color3.new(0, 1, 0)) end
+        return true
+    end
+
+    -- 思路 3: 双向碰撞分析算墙体绝对厚度 (Bidirectional Thickness Test)
+    -- 从目标点 p2 向 p1 反向扫一条射线，精准计算墙体“入点”与“出点”的物理厚度
+    local hitReverse = Workspace:Raycast(p2, -unitDir * dist, cachedParams)
+    if hitReverse then
+        local wallThickness = (hitForward.Position - hitReverse.Position).Magnitude
+        if wallThickness <= MaxWallThickness then
+            if Debug_Rays then VisualizeRay(p1, p2, Color3.new(0, 1, 0)) end
+            return true
+        end
+    end
+
+    -- 思路 4: 目标中心点到障碍物落点的相对残余距离判定 (保留原逻辑特征并增强)
+    local hitToTargetDist = (hitForward.Position - p2).Magnitude
+    if hitToTargetDist <= MaxWallThickness then
+        if Debug_Rays then VisualizeRay(p1, hitForward.Position, Color3.new(0, 1, 0)) end
+        return true
+    end
+
+    -- 思路 5: 多点边缘采样解算 (Multi-Point Corner Clearance)
+    -- 当中心直接撞击厚墙时，尝试探测目标周围的边缘偏移点，寻找缝隙穿透
+    local offsets = {
+        Vector3.new(0, 1.5, 0),  -- 头部高位
+        Vector3.new(1.2, 0, 0),  -- 右侧肩部
+        Vector3.new(-1.2, 0, 0)  -- 左侧肩部
+    }
+    for i = 1, #offsets do
+        local altP2 = p2 + offsets[i]
+        local altHit = Workspace:Raycast(p1, (altP2 - p1).Unit * dist, cachedParams)
+        if not altHit or (altHit.Position - altP2).Magnitude <= MaxWallThickness then
+            if Debug_Rays then VisualizeRay(p1, altP2, Color3.new(0, 1, 0)) end
+            return true
+        end
+    end
+
+    -- 思路 6: 失败兜底与 Debug 红色射线绘制
+    if Debug_Rays then VisualizeRay(p1, hitForward.Position, Color3.new(1, 0, 0)) end
+    return false
 end
 
+-- 保留你原有的 GetTarget 函数 (不做任何修改)
 local function GetTarget()
     local char=LocalPlayer.Character
     local root=char and char:FindFirstChild("HumanoidRootPart")
@@ -8615,143 +8724,91 @@ RunService:BindToRenderStep("SmoothMovementCamera", Enum.RenderPriority.Camera.V
     Camera.CFrame = CFrame.new(MC.SmoothPos, MC.SmoothPos+cf.LookVector)
 end)
 
--- ====================================================================
--- == Optimized & Hardened Combat/Movement Core (Drop-in Replacement)
--- == High-Performance Deterministic Multi-Terrain Adaptive Core v3.0
+-- =====================================================================
+-- == Main Heartbeat (Optimized for Zero Lag & Maximum Accuracy)
 -- =====================================================================
 
--- Precompute globals for micro-optimizations and zero-garbage generation
-local tick = tick
-local os_clock = os.clock
-local math_rad = math.rad
-local math_sqrt = math.sqrt
-local math_abs = math.abs
-local math_floor = math.floor
-local math_min = math.min
-local math_max = math.max
-local math_cos = math.cos
-local math_sin = math.sin
-local math_atan2 = math.atan2
-local table_insert = table.insert
-local pcall = pcall
-local ipairs = ipairs
-local Vector3 = Vector3
-local CFrame = CFrame
-local RaycastParams = RaycastParams
-local Enum = Enum
-local workspace = workspace
-
--- Spatial Hash Grid parameters for high-performance collision cache & terrain adaptation
-local SPATIAL_CELL_SIZE = 16
-local spatialCache = {}
-
-local function getSpatialKey(pos)
-    return math_floor(pos.X / SPATIAL_CELL_SIZE) * 73856093 
-       + math_floor(pos.Y / SPATIAL_CELL_SIZE) * 19349663 
-       + math_floor(pos.Z / SPATIAL_CELL_SIZE) * 83492791
-end
-
--- =====================================================================
--- == Optimized Skin & Visual Update (Throttled FPS Protection)
--- =====================================================================
 local function DoSkinUpdate()
     local now = tick()
-    if now - FF_S.LastSkin < 0.2 then return end
+    if now - FF_S.LastSkin < 1 then return end
     FF_S.LastSkin = now
-    
     if FF_S.BodyEnabled then
         local char = LocalPlayer.Character
         if char then
             for _, p in ipairs(char:GetChildren()) do
                 if IsBodyPart(p) then
-                    if p.Material ~= Enum.Material.ForceField or p.Color ~= FF_S.Color then
-                        FF_S.BodyProps[p] = FF_S.BodyProps[p] or {Material=p.Material, Color=p.Color}
-                        p.Material = Enum.Material.ForceField
-                        p.Color = FF_S.Color
+                    if not FF_S.BodyProps[p] then
+                        FF_S.BodyProps[p]={Material=p.Material,Color=p.Color}
+                        p.Material=Enum.Material.ForceField; p.Color=FF_S.Color
+                    elseif p.Material~=Enum.Material.ForceField then
+                        p.Material=Enum.Material.ForceField; p.Color=FF_S.Color
                     end
                 end
             end
         end
     end
-    
     if FF_S.ToolEnabled then
         local char = LocalPlayer.Character
         local tool = char and char:FindFirstChildOfClass("Tool")
         if tool then
             for _, p in ipairs(tool:GetDescendants()) do
                 if p:IsA("BasePart") then
-                    if p.Material ~= Enum.Material.ForceField or p.Color ~= FF_S.Color then
-                        FF_S.ToolProps[p] = FF_S.ToolProps[p] or {Material=p.Material, Color=p.Color}
-                        p.Material = Enum.Material.ForceField
-                        p.Color = FF_S.Color
+                    if not FF_S.ToolProps[p] then
+                        FF_S.ToolProps[p] = {Material=p.Material, Color=p.Color}
                     end
+                    p.Material = Enum.Material.ForceField
+                    p.Color    = FF_S.Color
                 end
             end
         end
     end
 end
 
--- =====================================================================
--- == Deterministic Desync Logic
--- =====================================================================
 local function DoDesyncLogic()
     if not DS.Enabled or Invis_Enabled then
         DS.AppliedOffset = Vector3.zero
-        if not DS.Enabled and DS.Model.Parent then DS.Model.Parent = nil end
+        if not DS.Enabled and DS.Model.Parent then DS.Model.Parent=nil end
         return
     end
     local char = LocalPlayer.Character
     local hrp  = char and char:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
-    
     local ragebotActive = false
     if RB_State and Valid_Pair and Valid_Pair.Target and Valid_Pair.Target.Character then
-        local tu = Valid_Pair.Target.Character:FindFirstChildOfClass("Humanoid")
-        if tu and tu.Health > 0 then
-            local tool = char:FindFirstChildOfClass("Tool")
-            if tool and tool:FindFirstChild("IsGun") then ragebotActive = true end
+        local th=Valid_Pair.Target.Character:FindFirstChild("HumanoidRootPart")
+        local tu=Valid_Pair.Target.Character:FindFirstChildOfClass("Humanoid")
+        if th and tu and tu.Health>0 then
+            local tool=char:FindFirstChildOfClass("Tool")
+            if tool and tool:FindFirstChild("IsGun") then ragebotActive=true end
         end
     end
-    
     if ragebotActive then
-        if DS.Model.Parent then DS.Model.Parent = nil end
-        DS.AppliedOffset = Vector3.zero
-        return
+        if DS.Model.Parent then DS.Model.Parent=nil end
+        DS.AppliedOffset=Vector3.zero; return
     end
-    
-    local clk = os_clock()
-    local interval = DS.TPRate > 0 and (1 / DS.TPRate) or 0
-    if clk - DS.LastTPTime >= interval then
-        DS.LastTPTime = clk
-        DS.Y_Toggle = not DS.Y_Toggle
-        -- Completely eliminated math.random; replaced with strict deterministic oscillation phase
-        local phase = (clk % 2) < 1 and 1 or -1
-        local yOff = DS.Y_Toggle and (DS.Y * 0.5) or 0
-        local tOff = Vector3.new(phase * DS.X, yOff, -phase * DS.Z)
-        
-        local p = RaycastParams.new()
-        p.FilterDescendantsInstances = {char, DS.Model, Camera}
-        p.FilterType = Enum.RaycastFilterType.Exclude
-        local rr = workspace:Raycast(hrp.Position, tOff, p)
-        if rr then
-            DS.CurrentOffset = (rr.Position + rr.Normal * 1.5) - hrp.Position
-        else
-            DS.CurrentOffset = tOff
-        end
+    local clk=os.clock()
+    local interval=DS.TPRate>0 and (1/DS.TPRate) or 0
+    if clk-DS.LastTPTime >= interval then
+        DS.LastTPTime=clk
+        DS.Y_Toggle=not DS.Y_Toggle
+        local yOff=DS.Y_Toggle and (DS.Y * 0.5) or 0
+        local tOff=Vector3.new(DS.X * 0.5, yOff, DS.Z * 0.5)
+        local p=RaycastParams.new()
+        p.FilterDescendantsInstances={char,DS.Model,Camera}
+        p.FilterType=Enum.RaycastFilterType.Exclude
+        local rr=workspace:Raycast(hrp.Position, tOff, p)
+        if rr then DS.CurrentOffset=(rr.Position+rr.Normal*1.5)-hrp.Position
+        else DS.CurrentOffset=tOff end
     end
-    
     if DS.Visualize then
-        if DS.Model.Parent ~= workspace.Terrain then DS.Model.Parent = workspace.Terrain end
-        DS.Model:PivotTo(CFrame.new(hrp.Position + DS.CurrentOffset))
+        if DS.Model.Parent~=workspace.Terrain then DS.Model.Parent=workspace.Terrain end
+        DS.Model:PivotTo(CFrame.new(hrp.Position+DS.CurrentOffset))
     else
-        if DS.Model.Parent then DS.Model.Parent = nil end
+        if DS.Model.Parent then DS.Model.Parent=nil end
     end
     DS.AppliedOffset = DS.CurrentOffset
 end
 
--- =====================================================================
--- == Animation & State Logic
--- =====================================================================
 local function DoLuanFeiLogic()
     if not LF.Enabled or Invis_Enabled then return end
     local char = LocalPlayer.Character
@@ -8815,9 +8872,9 @@ local function ApplySpoofs()
 
     if LF.Enabled and not Invis_Enabled then
         local smoothRotation = CFrame.Angles(
-            math_rad(LF.Angle), 
-            math_rad(LF.Angle * 1.5), 
-            math_rad(LF.Angle * 0.8)
+            math.rad(LF.Angle), 
+            math.rad(LF.Angle * 1.5), 
+            math.rad(LF.Angle * 0.8)
         )
         newCF = newCF * smoothRotation
         spoofed = true
@@ -8861,36 +8918,93 @@ local function DoInvisible()
 end
 
 -- =====================================================================
--- == Deterministic Multi-Terrain Adaptive Core (Zero-Randomness, High Penetration)
+-- == 高性能确定性复合扫描矩阵 (完全剔除随机性与卡顿源)
 -- =====================================================================
 
--- Algorithm A: Deterministic Golden Spiral Ellipsoid (Optimized for deep clearance and high/low elevation differentials)
-local function GetOffsets_GoldenSpiral(center, radius, count)
-    if not radius or radius <= 0 or count <= 0 then return {center} end
-    local offsets = {center}
-    local goldenRatio = 1.61803398875
-    for i = 1, count do
-        local theta = 2 * 3.1415926535 * i / goldenRatio
-        local phi = math_acos(1 - 2 * i / count)
-        local r = radius * math_sqrt(i / count)
-        local x = r * math_sin(phi) * math_cos(theta)
-        local y = r * math_sin(phi) * math_sin(theta) * 1.6 -- Vertical stretch for high/low disparity
-        local z = r * math_cos(phi)
-        table_insert(offsets, center + Vector3.new(x, y, z))
+local DeterministicCoreVectors = {
+    Vector3.new(0, 0, 0),
+    Vector3.new(1, 0, 0), -Vector3.new(1, 0, 0),
+    Vector3.new(0, 1, 0), -Vector3.new(0, 1, 0),
+    Vector3.new(0, 0, 1), -Vector3.new(0, 0, 1),
+    Vector3.new(0.707, 0.707, 0), -Vector3.new(0.707, 0.707, 0),
+    Vector3.new(0.707, 0, 0.707), -Vector3.new(0.707, 0, 0.707),
+    Vector3.new(0, 0.707, 0.707), -Vector3.new(0, 0.707, 0.707),
+    Vector3.new(0.577, 0.577, 0.577), -Vector3.new(0.577, 0.577, 0.577),
+    Vector3.new(0.577, -0.577, 0.577), -Vector3.new(0.577, -0.577, 0.577),
+}
+
+-- 算法1：高低差立体穿透解析 (专门针对高打低/低打远处的复杂垂直障碍)
+local function GetOffsets_AdaptiveVertical(center, target, radius)
+    if not radius or radius <= 0 then return {center} end
+    local offsets = {}
+    local diff = target - center
+    local heightBias = Vector3.new(0, diff.Y * 0.5, 0)
+    for _, v in ipairs(DeterministicCoreVectors) do
+        table.insert(offsets, center + heightBias + (v * radius))
     end
     return offsets
 end
 
--- Algorithm B: Orthogonal Axis-Aligned Permutation Grid (Perfect for thin walls, corner edges, and window frames)
-local function GetOffsets_OrthogonalGrid(center, radius)
+-- 算法2：多维镂空边界解析 (针对左右边缘、窗户、栏杆缝隙穿透)
+local function GetOffsets_AdaptiveHollow(center, target, radius)
+    if not radius or radius <= 0 then return {center} end
+    local offsets = {}
+    local rightDir = (target - center):Cross(Vector3.new(0, 1, 0))
+    if rightDir.Magnitude < 0.001 then rightDir = Vector3.new(1, 0, 0) else rightDir = rightDir.Unit end
+    for i = -2, 2 do
+        if i ~= 0 then
+            table.insert(offsets, center + (rightDir * (radius * (i * 0.5))))
+            table.insert(offsets, center + Vector3.new(0, radius * i * 0.4, 0))
+        end
+    end
+    table.insert(offsets, center)
+    return offsets
+end
+
+-- 算法3：斐波那契全向确定性半球散布 (无随机值，确保每一帧轨迹百分百精准复现)
+local function GetOffsets_FibonacciHemisphere(center, poleDir, radius, count)
+    if not radius or radius <= 0 or count <= 0 then return {center} end
+    local offsets = {center}
+    local PHI = 2.399963229
+    local arb = math.abs(poleDir.X) < 0.9 and Vector3.new(1,0,0) or Vector3.new(0,1,0)
+    local t1 = poleDir:Cross(arb).Unit
+    local t2 = poleDir:Cross(t1).Unit
+
+    for i = 0, math.min(count, 16) - 1 do
+        local phi = i * PHI
+        local cosT = 1 - ((i + 0.5) / count)
+        local sinT = math.sqrt(math.clamp(1 - cosT * cosT, 0, 1))
+        local dir = t1 * (sinT * math.cos(phi)) + t2 * (sinT * math.sin(phi)) + poleDir * cosT
+        table.insert(offsets, center + (dir * radius))
+    end
+    return offsets
+end
+
+-- 算法4：远距离阶梯延展平地解析 (针对超远距离平地掩体狙击)
+local function GetOffsets_ExtendedDistance(center, target, radius)
+    if not radius or radius <= 0 then return {center} end
+    local offsets = {}
+    local forward = (target - center)
+    local dist = forward.Magnitude
+    if dist < 0.001 then return {center} end
+    forward = forward.Unit
+    local stepSize = math.min(dist * 0.2, radius * 1.5)
+    for i = 0, 3 do
+        table.insert(offsets, center + (forward * (i * stepSize)))
+    end
+    table.insert(offsets, center)
+    return offsets
+end
+
+-- 算法5：全向复合密集网格解析 (用于极度复杂的多重交错掩体)
+local function GetOffsets_DenseGrid(center, target, radius)
     if not radius or radius <= 0 then return {center} end
     local offsets = {center}
-    local step = radius * 0.5
-    for x = -radius, radius, step do
-        for y = -radius, radius, step do
-            for z = -radius, radius, step do
-                if x ~= 0 or y ~= 0 or z ~= 0 then
-                    table_insert(offsets, center + Vector3.new(x, y * 1.4, z))
+    for x = -1, 1 do
+        for y = -1, 1 do
+            for z = -1, 1 do
+                if not (x == 0 and y == 0 and z == 0) then
+                    table.insert(offsets, center + (Vector3.new(x, y, z).Unit * radius))
                 end
             end
         end
@@ -8898,113 +9012,91 @@ local function GetOffsets_OrthogonalGrid(center, radius)
     return offsets
 end
 
--- Algorithm C: Dual-Hemisphere Elevation Sweep (Engineered specifically for High-to-Low or Low-to-High obstructed geometry)
-local function GetOffsets_ElevationSweep(center, direction, radius, count)
-    if not radius or radius <= 0 or count <= 0 then return {center} end
-    local offsets = {center}
-    local upVector = Vector3.new(0, 1, 0)
-    local rightVector = direction:Cross(upVector)
-    if rightVector.Magnitude < 0.001 then
-        rightVector = Vector3.new(1, 0, 0)
-    else
-        rightVector = rightVector.Unit
-    end
-    local trueUp = rightVector:Cross(direction).Unit
-
-    for i = 1, count do
-        local angle = (i / count) * 6.283185307
-        local distFactor = (i % 2 == 0) and radius or (radius * 0.5)
-        local offsetVec = (rightVector * math_cos(angle) + trueUp * math_sin(angle)) * distFactor
-        -- Include vertical elevation biases for high-ground down-shooting and low-ground up-shooting
-        table_insert(offsets, center + offsetVec + Vector3.new(0, (i - (count/2)) * (radius / count), 0))
-    end
-    return offsets
-end
-
--- Algorithm D: Volumetric Edge-Perforation Lattice (Guarantees bypass through complex multi-tier gaps and uneven structures)
-local function GetOffsets_EdgePerforation(center, targetPos, radius)
+-- 算法6：动态掩体拐角切线解析 (针对卡视角和边缘死角)
+local function GetOffsets_CornerTangent(center, target, radius)
     if not radius or radius <= 0 then return {center} end
-    local offsets = {center}
-    local lookDir = (targetPos - center)
-    if lookDir.Magnitude < 0.001 then lookDir = Vector3.new(0, 0, 1) else lookDir = lookDir.Unit end
-    
-    -- Corner probes and structural boundary points
-    local corners = {
-        Vector3.new(1, 1, 1), Vector3.new(-1, 1, 1), Vector3.new(1, -1, 1), Vector3.new(-1, -1, 1),
-        Vector3.new(1, 1, -1), Vector3.new(-1, 1, -1), Vector3.new(1, -1, -1), Vector3.new(-1, -1, -1),
-        Vector3.new(0, 1, 0), Vector3.new(0, -1, 0), Vector3.new(1, 0, 0), Vector3.new(-1, 0, 0),
-        Vector3.new(0, 0, 1), Vector3.new(0, 0, -1)
-    }
-    
-    for _, c in ipairs(corners) do
-        table_insert(offsets, center + c * radius)
-        table_insert(offsets, center + c * (radius * 0.5))
+    local offsets = {}
+    local direction = (target - center)
+    local perp = Vector3.new(-direction.Z, 0, direction.X)
+    if perp.Magnitude > 0.001 then
+        perp = perp.Unit
+        table.insert(offsets, center + (perp * radius))
+        table.insert(offsets, center - (perp * radius))
+        table.insert(offsets, center + Vector3.new(0, radius, 0) + (perp * (radius * 0.5)))
     end
+    table.insert(offsets, center)
     return offsets
 end
 
 -- =====================================================================
--- == High-Performance Ragebot Engine with Spatial Pruning & Zero Stutter
+-- == 核心 Ragebot 逻辑 (极速裁剪优化版)
 -- =====================================================================
 local function DoRagebot()
-    if not RB_State then Valid_Pair = nil; Locked_Path = nil; return end
-    local target = GetTarget()
-    if not target or not target.Character then Valid_Pair = nil; Locked_Path = nil; return end
-    if Locked_Path and Locked_Path.Target ~= target then Locked_Path = nil end
+    if not RB_State then Valid_Pair=nil; Locked_Path=nil; return end
+    local target=GetTarget()
+    if not target or not target.Character then Valid_Pair=nil; Locked_Path=nil; return end
+    if Locked_Path and Locked_Path.Target~=target then Locked_Path=nil end
     
-    local myChar = LocalPlayer.Character
-    local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
-    local tRoot = target.Character:FindFirstChild("HumanoidRootPart")
+    local myRoot=LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    local tRoot=target.Character:FindFirstChild("HumanoidRootPart")
     if not myRoot or not tRoot then return end
-    
-    local myPos = GetLocalRealPosition()
-    local tPos = tRoot.Position
+    local myPos=GetLocalRealPosition()
+    local tPos=tRoot.Position
 
-    -- 1. Ultra-fast trajectory caching check to preserve FPS during intense movement
+    -- 1. 缓存机制加速
     if Locked_Path then
-        local dO = (myPos - Locked_Path.MyPos).Magnitude
-        local dH = (tPos - Locked_Path.TPos).Magnitude
-        local inRange = (myPos - Locked_Path.AbsO).Magnitude <= Origin_Radius
-                    and (tPos - Locked_Path.AbsH).Magnitude <= Hit_Radius
-        if dO <= WB.Threshold and dH <= WB.Threshold and inRange then
-            if CheckWallbang(Locked_Path.AbsO, Locked_Path.AbsH) then
-                Valid_Pair = {Origin = Locked_Path.AbsO, Hit = Locked_Path.AbsH, Target = target}
-                WB.Cached = true
-                return
+        local dO=(myPos-Locked_Path.MyPos).Magnitude
+        local dH=(tPos-Locked_Path.TPos).Magnitude
+        local inRange=(myPos-Locked_Path.AbsO).Magnitude<=Origin_Radius
+               and (tPos-Locked_Path.AbsH).Magnitude<=Hit_Radius
+        if dO<=WB.Threshold and dH<=WB.Threshold and inRange then
+            if CheckWallbang(Locked_Path.AbsO,Locked_Path.AbsH) then
+                Valid_Pair={Origin=Locked_Path.AbsO,Hit=Locked_Path.AbsH,Target=target}
+                WB.Cached=true; return
             end
         end
-        Locked_Path = nil
+        Locked_Path=nil
     end
 
-    -- 2. Dynamic Scan Rate Throttle (Completely eliminates frame drops during jumping and rapid movement)
+    -- 2. 限制扫描频率防止帧率下降
     local currentTick = tick()
-    if currentTick - WB.LastScan < (1 / ScanRate) then return end
+    if currentTick - WB.LastScan < (1 / math.clamp(ScanRate, 30, 120)) then return end
     WB.LastScan = currentTick
-    WB.Round = (WB.Round % 4) + 1
+    WB.Round = (WB.Round % 6) + 1
 
-    -- 3. Deterministic Algorithm Rotation (Zero-Randomness, High-Penetration Execution)
+    -- 3. 轮换6种强力确定性算法
     local newOrigin, newTarget
-    local dirVector = (tPos - myPos)
-    if dirVector.Magnitude < 0.001 then dirVector = Vector3.new(0, 1, 0) else dirVector = dirVector.Unit end
+    local oPole = (tPos - myPos)
+    if oPole.Magnitude < 0.001 then return end
+    oPole = oPole.Unit
+    local hPole = -oPole
 
     if WB.Round == 1 then
-        newOrigin = GetOffsets_GoldenSpiral(myPos, Origin_Radius, math_max(10, Origin_Scans))
-        newTarget = GetOffsets_GoldenSpiral(tPos, Hit_Radius, math_max(10, Hit_Scans))
+        newOrigin = GetOffsets_AdaptiveVertical(myPos, tPos, Origin_Radius)
+        newTarget = GetOffsets_AdaptiveVertical(tPos, myPos, Hit_Radius)
     elseif WB.Round == 2 then
-        newOrigin = GetOffsets_OrthogonalGrid(myPos, Origin_Radius)
-        newTarget = GetOffsets_OrthogonalGrid(tPos, Hit_Radius)
+        newOrigin = GetOffsets_AdaptiveHollow(myPos, tPos, Origin_Radius)
+        newTarget = GetOffsets_AdaptiveHollow(tPos, myPos, Hit_Radius)
     elseif WB.Round == 3 then
-        newOrigin = GetOffsets_ElevationSweep(myPos, dirVector, Origin_Radius, math_max(12, Origin_Scans))
-        newTarget = GetOffsets_ElevationSweep(tPos, -dirVector, Hit_Radius, math_max(12, Hit_Scans))
+        newOrigin = GetOffsets_FibonacciHemisphere(myPos, oPole, Origin_Radius, Origin_Scans)
+        newTarget = GetOffsets_FibonacciHemisphere(tPos, hPole, Hit_Radius, Hit_Scans)
+    elseif WB.Round == 4 then
+        newOrigin = GetOffsets_ExtendedDistance(myPos, tPos, Origin_Radius)
+        newTarget = GetOffsets_ExtendedDistance(tPos, myPos, Hit_Radius)
+    elseif WB.Round == 5 then
+        newOrigin = GetOffsets_DenseGrid(myPos, tPos, Origin_Radius)
+        newTarget = GetOffsets_DenseGrid(tPos, myPos, Hit_Radius)
     else
-        newOrigin = GetOffsets_EdgePerforation(myPos, tPos, Origin_Radius)
-        newTarget = GetOffsets_EdgePerforation(tPos, myPos, Hit_Radius)
+        newOrigin = GetOffsets_CornerTangent(myPos, tPos, Origin_Radius)
+        newTarget = GetOffsets_CornerTangent(tPos, myPos, Hit_Radius)
     end
 
-    -- 4. Exhaustive Deterministic Raycast Verification with Precise Structural Validation
+    -- 4. 极致剪枝的高效双循环（一旦命中立即中断，绝对不产生无效空转卡顿）
     local bestPO, bestPH = nil, nil
-    for _, pO in ipairs(newOrigin) do
-        for _, pH in ipairs(newTarget) do
+    for i = 1, #newOrigin do
+        local pO = newOrigin[i]
+        for j = 1, #newTarget do
+            local pH = newTarget[j]
             if CheckWallbang(pO, pH) then
                 bestPO = pO
                 bestPH = pH
@@ -9014,18 +9106,16 @@ local function DoRagebot()
         if bestPO then break end
     end
 
-    if bestPO then
-        Locked_Path = {AbsO = bestPO, AbsH = bestPH, Target = target, MyPos = myPos, TPos = tPos}
-        Valid_Pair = {Origin = bestPO, Hit = bestPH, Target = target}
-        WB.Cached = false
+    -- 5. 更新状态与结果防空枪判定
+    if bestPO and bestPH then
+        Locked_Path={AbsO=bestPO,AbsH=bestPH,Target=target,MyPos=myPos,TPos=tPos}
+        Valid_Pair={Origin=bestPO,Hit=bestPH,Target=target}
+        WB.Cached=false
     else
-        Valid_Pair = nil
+        Valid_Pair=nil
     end
 end
 
--- =====================================================================
--- == Main Heartbeat Connection (Optimized Execution Order)
--- =====================================================================
 RunService.Heartbeat:Connect(function()
     DoSkinUpdate()
     ApplySpoofs()
@@ -9214,7 +9304,7 @@ RunService.Heartbeat:Connect(function()
     if RF_State then
         local gn = tool.Name
         if (gn:find("Beretta") or gn:find("TEC")) then
-            waitTime = 0.001
+            waitTime = 0.01
         else
             local cfg = tool:FindFirstChild("Config")
             if cfg and cfg:IsA("ModuleScript") then
