@@ -1,9 +1,9 @@
 local Event = game:GetService("ReplicatedStorage").Events.Notification
 firesignal(Event.OnClientEvent, 
     {
-        Text = "算法++",
+        Text = "rvvz更新大削",
         Duration = 60,
-        Title = "算法",
+        Title = "rvvZ 666",
         Button1 = "know"
     },
     "BEEP"
@@ -8035,6 +8035,147 @@ do
     end)
 end
 
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
+
+-- ===== UI =====
+local MobileButtonGUI = LocalPlayer.PlayerGui:WaitForChild("MobileButtonGUI")
+local TouchControlFrame = MobileButtonGUI:WaitForChild("TouchControlFrame")
+local SprintButton = TouchControlFrame:WaitForChild("SprintButton")
+
+local Event = ReplicatedStorage:WaitForChild("Events"):WaitForChild("Notification")
+
+local desyncGui = Instance.new("ScreenGui")
+desyncGui.Name = "DesyncButtonGUI"
+desyncGui.ResetOnSpawn = false
+desyncGui.IgnoreGuiInset = true
+desyncGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+desyncGui.Parent = LocalPlayer.PlayerGui
+
+local newButton = SprintButton:Clone()
+newButton.Name = "DesyncButton"
+newButton.Parent = desyncGui
+
+for _, d in ipairs(newButton:GetDescendants()) do
+    if d:IsA("TextLabel") or d:IsA("TextButton") or d:IsA("TextBox") then
+        d.Text = "desync"
+    end
+end
+if newButton:IsA("TextButton") or newButton:IsA("TextLabel") then
+    newButton.Text = "desync"
+end
+
+newButton.AnchorPoint = Vector2.new(0, 0)
+newButton.Position = UDim2.new(0, 60, 0, 80)
+newButton.Active = true
+newButton.Selectable = true
+newButton.AutoButtonColor = true
+
+-- ===== Desync 状态 =====
+local isDesyncOn = false
+local desyncRunning = false      -- 循环是否应继续
+local desyncThread = nil         -- 当前线程
+local desyncConn = nil           -- CharacterAdded 连接
+
+-- 复原用的默认值（不同游戏可能不同，按需改）
+local DEFAULT_SENDER_RATE = 60
+
+local function resetPhysicsRep(hrp)
+    if hrp and hrp.Parent then
+        pcall(sethiddenproperty, hrp, "PhysicsRepRootPart", hrp)
+    end
+end
+
+local function startDesync()
+    if desyncRunning then return end
+    desyncRunning = true
+
+    local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+    local HumanoidRootPart = Character:WaitForChild("HumanoidRootPart")
+
+    pcall(setfflag, "S2PhysicsSenderRate", 1000)
+
+    local dsfs = 0
+    local issyncinrn = false
+
+    desyncThread = task.spawn(function()
+        while desyncRunning and LocalPlayer.Character == Character
+              and HumanoidRootPart.Parent do
+
+            if issyncinrn then task.wait() continue end
+
+            if dsfs <= 0 then
+                issyncinrn = true
+                pcall(sethiddenproperty, HumanoidRootPart, "PhysicsRepRootPart", nil)
+                task.wait(0.1)
+                if not desyncRunning then
+                    issyncinrn = false
+                    break
+                end
+                pcall(sethiddenproperty, HumanoidRootPart, "PhysicsRepRootPart", HumanoidRootPart)
+                issyncinrn = false
+                dsfs = 20
+            else
+                dsfs = dsfs - 1
+                pcall(sethiddenproperty, HumanoidRootPart, "PhysicsRepRootPart", HumanoidRootPart)
+            end
+
+            task.wait(1 / 100)
+        end
+
+        -- 循环退出后强制复原，保证“关闭即失效”
+        resetPhysicsRep(HumanoidRootPart)
+        desyncThread = nil
+    end)
+end
+
+local function stopDesync()
+    if not desyncRunning then return end
+    desyncRunning = false
+
+    local Character = LocalPlayer.Character
+    if Character then
+        resetPhysicsRep(Character:FindFirstChild("HumanoidRootPart"))
+    end
+
+    desyncThread = nil
+    pcall(setfflag, "S2PhysicsSenderRate", DEFAULT_SENDER_RATE)
+end
+
+-- 角色重生时自动续接（开着才续）
+desyncConn = LocalPlayer.CharacterAdded:Connect(function()
+    if isDesyncOn then
+        task.wait(0.5)
+        -- 旧循环已因角色变化退出，重启一个
+        desyncRunning = false
+        task.wait()
+        startDesync()
+    end
+end)
+
+-- ===== 按钮 =====
+newButton.Activated:Connect(function()
+    isDesyncOn = not isDesyncOn
+
+    if isDesyncOn then
+        startDesync()
+    else
+        stopDesync()
+    end
+
+    local stateText = isDesyncOn and "开启" or "关闭"
+    local buttonText = isDesyncOn and "close" or "know"
+
+    firesignal(Event.OnClientEvent, {
+        Text = "desync (" .. stateText .. ")",
+        Duration = 60,
+        Title = "离开启原点内10m有伤害",
+        Button1 = buttonText
+    }, "BEEP")
+end)
+
 -- World Visuals enforce loop
 RunService.RenderStepped:Connect(function()
     if WV.WorldTimeEnabled then WV_Lit.ClockTime = WV.WorldTime end
@@ -8108,18 +8249,6 @@ do -- Combat page
     local Cam    = Page:SubPage({Name="Legit",      Columns=2})
     local Melee  = Page:SubPage({Name="MeleeAura",  Columns=2})
     local SAPage = Page:SubPage({Name="Silent aim", Columns=2})
-    local TBPage = Page:SubPage({Name="TriggerBot", Columns=2})
-
-    do -- TriggerBot UI 独立构建
-        local s1 = TBPage:Section({Name="TriggerBot Settings", Side=1})
-        s1:Toggle({Name="Enable", Flag="CAT_TB_Enable", Callback=function(v) TB.Enabled=v end}):Keybind({Flag="CAT_TB_Enable_KB", Mode="Toggle", Callback=function(v) if Library and Library.SetFlags and Library.SetFlags["CAT_TB_Enable"] then Library.SetFlags["CAT_TB_Enable"](v) end end})
-        s1:Toggle({Name="Wall Check", Flag="CAT_TB_WallCheck", Default=true, Callback=function(v) TB.WallCheck=v end})
-        s1:Toggle({Name="Expose Check (露打)", Flag="CAT_TB_ExposeCheck", Default=true, Callback=function(v) TB.ExposeCheck=v end})
-        s1:Toggle({Name="Target Only (Blacklist)", Flag="CAT_TB_TargetOnly", Default=false, Callback=function(v) TB.TargetOnly=v end})
-        s1:Toggle({Name="Ignore Whitelist", Flag="CAT_TB_IgnoreWhitelist", Default=true, Callback=function(v) TB.IgnoreWhitelist=v end})
-        s1:Toggle({Name="Down Check", Flag="CAT_TB_DownCheck", Default=true, Callback=function(v) TB.DownCheck=v end})
-        s1:Slider({Name="Delay (Fire Rate)", Flag="CAT_TB_Delay", Min=0.01, Max=1, Default=0.05, Decimals=0.01, Callback=function(v) TB.Delay=v end})
-    end
 
     do -- Silent Aim
         local s1 = SAPage:Section({Name="Silent Aim", Side=1})
@@ -8625,7 +8754,7 @@ RunService:BindToRenderStep("SmoothMovementCamera", Enum.RenderPriority.Camera.V
 end)
 
 -- =====================================================================
--- == Main Heartbeat (split into sub-functions to keep register count low)
+-- == 核心扫描、算法与 Auto Peek 逻辑（无冗余全局变量，无缝整合原结构）
 -- =====================================================================
 
 local function DoSkinUpdate()
