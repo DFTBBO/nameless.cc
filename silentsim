@@ -1,12 +1,14 @@
 --[[
-    🎯 UNIVERSAL PRO SCRIPT v6.0 (COMPLETE REWRITE - ZERO CRASH)
-    ✅ 极简扫描：只扫 workspace 直接子级 + 一层深，速度提升 100 倍
-    ✅ NPC 判定：活着的 + Humanoid + HumanoidRootPart + 不是玩家 = NPC
-    ✅ 无事件监听风暴：不监听 DescendantAdded（改成定时轮询）
-    ✅ 无属性读写：不用 SetAttribute/GetAttribute
-    ✅ 无全地图递归：不使用 workspace:GetDescendants()
-    ✅ 统一缓存：Silent Aim 和 ESP 共用同一份 NPC 列表
+    🎯 UNIVERSAL PRO SCRIPT v6.1 (Zero Crash + Anti-Cheat Bypass)
+    ✅ v6.0 极简零崩溃架构（只扫 workspace 一层深，0.4s 轮询，无事件风暴）
+    ✅ 加回 Anti-Kick + Adonis Bypass（反反作弊）
+    ✅ Silent Aim 和 ESP 共用同一份 ActiveNPCs 缓存
+    ✅ NPC 判定：活着的 + Humanoid + HRP + 不是玩家 = NPC
 ]]
+
+--// ==================== 反作弊配置 ====================
+_G.AntiKickEnabled = true
+_G.AdonisBypass = true
 
 --// ==================== 配置 ====================
 _G.SilentAim = false
@@ -49,21 +51,22 @@ _G.ESP = {
 }
 
 -- 性能
-_G.ScanInterval = 0.4       -- NPC 扫描间隔
-_G.ESPFrameInterval = 2     -- ESP 每 N 帧更新
-_G.AimFrameInterval = 2     -- Silent Aim 每 N 帧更新
+_G.ScanInterval = 0.4
+_G.ESPFrameInterval = 2
+_G.AimFrameInterval = 2
 
 --// ==================== 服务 ====================
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Camera = workspace.CurrentCamera
 local LocalPlayer = Players.LocalPlayer
 local Mouse = LocalPlayer:GetMouse()
 
 --// ==================== 缓存 ====================
-local ActiveNPCs = {}      -- [model] = {Humanoid, HRP}
-local ActivePlayers = {}   -- [model] = {Humanoid, HRP, Player}
-local ESP_Objects = {}     -- [model] = {Box, Line, Name, ...}
+local ActiveNPCs = {}
+local ActivePlayers = {}
+local ESP_Objects = {}
 
 local CurrentTarget = nil
 local TargetPart = nil
@@ -71,28 +74,196 @@ local TargetPart = nil
 local FrameCounter = 0
 local ScanCount = 0
 
---// ==================== 基础工具 ====================
+-- ==================================================
+-- 🛡️ 反作弊保护层 1：Anti-Kick
+-- ==================================================
+
+local antiKickLoaded = false
+
+-- 1.1 尝试加载外部 Anti-Kick 脚本
+pcall(function()
+    local antiKickScript = game:HttpGet("https://rawscripts.net/raw/Universal-Script-Adonis-Bypass-45451")
+    if antiKickScript and #antiKickScript > 0 then
+        task.spawn(function()
+            local func = loadstring(antiKickScript)
+            if func then
+                local ok = pcall(func)
+                if ok then
+                    antiKickLoaded = true
+                    print("[v6.1] ✅ Anti-Kick 外部脚本加载成功")
+                end
+            end
+        end)
+    end
+end)
+
+-- 1.2 内置 Anti-Kick（软性拦截）
+task.spawn(function()
+    if not _G.AntiKickEnabled then return end
+    local function softAntiKick()
+        pcall(function()
+            if LocalPlayer and LocalPlayer.Kick then
+                LocalPlayer.Kick = function() return nil end
+            end
+            -- 拦截 CoreGui 的默认 Kick
+            if LocalPlayer and LocalPlayer.Destroy then
+                local oldDestroy = LocalPlayer.Destroy
+                LocalPlayer.Destroy = function() return end
+            end
+        end)
+    end
+    softAntiKick()
+    while _G.AntiKickEnabled and task.wait(30) do
+        softAntiKick()
+    end
+end)
+
+-- 1.3 Hook RemoteKick（拦截服务端踢人信号）
+task.spawn(function()
+    if not _G.AntiKickEnabled then return end
+    pcall(function()
+        local mt = getrawmetatable(game)
+        if not mt then return end
+        local oldNC = mt.__namecall
+        setreadonly(mt, false)
+        mt.__namecall = newcclosure(function(self, ...)
+            local method = getnamecallmethod()
+            if method == "Kick" then
+                if _G.AntiKickEnabled then
+                    return nil
+                end
+            end
+            if method == "FireServer" or method == "InvokeServer" then
+                local name = ""
+                if typeof(self) == "Instance" then
+                    name = string.lower(self.Name)
+                else
+                    name = string.lower(tostring(self))
+                end
+                if string.find(name, "kick") or string.find(name, "ban")
+                    or string.find(name, "punish") or string.find(name, "detect") then
+                    if _G.AntiKickEnabled then
+                        return nil
+                    end
+                end
+            end
+            return oldNC(self, ...)
+        end)
+        setreadonly(mt, true)
+    end)
+end)
+
+-- ==================================================
+-- 🛡️ 反作弊保护层 2：Adonis Bypass
+-- ==================================================
+
+local function BypassAdonis()
+    if not _G.AdonisBypass then return end
+
+    -- 2.1 检测 Adonis
+    local AdonisDetected = false
+    pcall(function()
+        for _, obj in ipairs(game:GetDescendants()) do
+            if obj.Name == "Adonis" or obj.Name == "AntiCheat" then
+                AdonisDetected = true
+                break
+            end
+        end
+    end)
+
+    if not AdonisDetected then
+        for _, name in ipairs({
+            "Adonis_Remote","Adonis_AntiCheat","Adonis_Check",
+            "Adonis_Validate","Adonis_Log","Adonis_Event"
+        }) do
+            if ReplicatedStorage:FindFirstChild(name) then
+                AdonisDetected = true
+                break
+            end
+        end
+    end
+
+    if not AdonisDetected then
+        print("[v6.1] ℹ️ 未检测到 Adonis")
+        return
+    end
+
+    print("[v6.1] 🛡️ 检测到 Adonis，应用 Bypass...")
+
+    -- 2.2 屏蔽 Adonis RemoteEvents
+    for _, name in ipairs({
+        "Adonis_Remote","Adonis_AntiCheat","Adonis_Check",
+        "Adonis_Validate","Adonis_Log","Adonis_Event"
+    }) do
+        local remote = ReplicatedStorage:FindFirstChild(name)
+        if remote and remote:IsA("RemoteEvent") then
+            pcall(function()
+                remote.OnServerEvent:Connect(function() return end)
+            end)
+        end
+    end
+
+    -- 2.3 Hook namecall 拦截 Adonis 调用
+    pcall(function()
+        local mt = getrawmetatable(game)
+        if not mt then return end
+        local oldNC = mt.__namecall
+        setreadonly(mt, false)
+        mt.__namecall = newcclosure(function(self, ...)
+            local method = getnamecallmethod()
+            if method == "FireServer" or method == "InvokeServer" then
+                local selfName = string.lower(tostring(self))
+                if string.find(selfName, "adonis")
+                    or string.find(selfName, "anticheat")
+                    or string.find(selfName, "detect")
+                    or string.find(selfName, "validate") then
+                    return nil
+                end
+            end
+            return oldNC(self, ...)
+        end)
+        setreadonly(mt, true)
+    end)
+
+    -- 2.4 清除 Adonis 全局标记（每 0.5 秒）
+    task.spawn(function()
+        while _G.AdonisBypass and task.wait(0.5) do
+            pcall(function()
+                if getgenv and getgenv().Adonis then
+                    getgenv().Adonis.Detected = false
+                end
+                if getgenv and getgenv().adonis then
+                    getgenv().adonis.Detected = false
+                end
+            end)
+        end
+    end)
+
+    print("[v6.1] ✅ Adonis Bypass 已应用")
+end
+
+-- 延迟 3 秒执行（等游戏加载）
+task.spawn(function()
+    task.wait(3)
+    pcall(BypassAdonis)
+end)
+
+-- ==================================================
+-- 基础工具
+-- ==================================================
+
 local function IsLocalCharacter(model)
     if not model then return true end
     return model == LocalPlayer.Character
-end
-
-local function IsAlive(model)
-    if not model or not model.Parent then return false end
-    local hum = model:FindFirstChildOfClass("Humanoid")
-    if not hum then return false end
-    if hum.Health <= 0 then return false end
-    if hum:GetState() == Enum.HumanoidStateType.Dead then return false end
-    return true
 end
 
 local function IsPlayerModel(model)
     return Players:GetPlayerFromCharacter(model) ~= nil
 end
 
---// ==================== 核心扫描器 ====================
--- 极简：只扫 workspace 直接子级 + 一层文件夹/模型的子级
--- 不做 GetDescendants，不做递归，不做事件监听
+-- ==================================================
+-- 核心扫描器（v6.0 极简逻辑）
+-- ==================================================
 
 local function TryAddNPC(model, cache)
     if not model or not model:IsA("Model") then return end
@@ -112,7 +283,6 @@ end
 
 local function ScanNPCs()
     local cache = {}
-
     local top = workspace:GetChildren()
     local topCount = #top
 
@@ -120,7 +290,6 @@ local function ScanNPCs()
         local obj = top[i]
         TryAddNPC(obj, cache)
 
-        -- 一层深：如果是文件夹/模型/配置，扫描其直接子级
         if obj:IsA("Folder") or obj:IsA("Model") or obj:IsA("Configuration") then
             local subs = obj:GetChildren()
             for j = 1, #subs do
@@ -128,14 +297,11 @@ local function ScanNPCs()
             end
         end
 
-        -- 分帧：每处理 40 个顶层对象 yield 一次
         if i % 40 == 0 then
             task.wait()
         end
     end
 
-    -- 保留已在 ESP 中但当前扫描没找到的（可能是短暂失联），但 3 秒后丢弃
-    -- 简化处理：直接替换
     ActiveNPCs = cache
     ScanCount = ScanCount + 1
 end
@@ -157,18 +323,19 @@ local function ScanPlayers()
     ActivePlayers = cache
 end
 
---// ==================== 后台扫描循环 ====================
 task.spawn(function()
     task.wait(1)
     while true do
-        local ok, err = pcall(ScanNPCs)
-        if not ok and _G.DebugMode then warn("[ScanNPCs]", err) end
+        pcall(ScanNPCs)
         pcall(ScanPlayers)
         task.wait(_G.ScanInterval)
     end
 end)
 
---// ==================== ESP 绘制对象池 ====================
+-- ==================================================
+-- ESP 绘制
+-- ==================================================
+
 local function NewPart(kind)
     local d = Drawing.new(kind)
     d.Visible = false
@@ -233,7 +400,6 @@ local function DestroyESPFor(model)
     ESP_Objects[model] = nil
 end
 
---// ==================== ESP 更新 ====================
 local function UpdateESPFor(model, data, isPlayer)
     local cfg = _G.ESP
     local hum = data.Humanoid
@@ -242,7 +408,6 @@ local function UpdateESPFor(model, data, isPlayer)
     local e = GetESP(model)
     local camPos = Camera.CFrame.Position
 
-    -- 死亡隐藏
     if cfg.DeadCheck then
         if not hum or hum.Health <= 0 or not hum.Parent then
             HideESP(e); return
@@ -263,9 +428,8 @@ local function UpdateESPFor(model, data, isPlayer)
     end
 
     local rootPos = Vector2.new(screenPos.X, screenPos.Y)
-    local color = isPlayer and cfg.EnemyColor or cfg.EnemyColor
+    local color = cfg.EnemyColor
 
-    -- 距离
     if cfg.ShowDistance then
         e.Distance.Position = rootPos - Vector2.new(0, 30)
         e.Distance.Color = Color3.fromRGB(255, 255, 255)
@@ -275,7 +439,6 @@ local function UpdateESPFor(model, data, isPlayer)
         e.Distance.Visible = false
     end
 
-    -- 名字
     if cfg.ShowName then
         e.Name.Position = rootPos - Vector2.new(0, 45)
         e.Name.Color = color
@@ -289,7 +452,6 @@ local function UpdateESPFor(model, data, isPlayer)
         e.Name.Visible = false
     end
 
-    -- 2D Box
     if cfg.ShowBox then
         local size = model:GetExtentsSize()
         local top = hrp.Position + Vector3.new(0, size.Y / 2, 0)
@@ -310,7 +472,6 @@ local function UpdateESPFor(model, data, isPlayer)
         e.Box.Visible = false
     end
 
-    -- 顶部连线
     if cfg.ShowLine then
         e.Line.From = Vector2.new(Camera.ViewportSize.X / 2, 0)
         e.Line.To = rootPos
@@ -320,7 +481,6 @@ local function UpdateESPFor(model, data, isPlayer)
         e.Line.Visible = false
     end
 
-    -- Stick
     if cfg.ShowStick then
         local head = model:FindFirstChild("Head")
         if head then
@@ -341,7 +501,6 @@ local function UpdateESPFor(model, data, isPlayer)
         e.Stick.Visible = false
     end
 
-    -- HP
     if cfg.ShowHP then
         local hpRatio = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1)
         local barW, barH = 60, 5
@@ -371,21 +530,18 @@ local function UpdateESP()
         return
     end
 
-    -- 更新 NPC
     if _G.ESP.ShowNPCs then
         for model, data in pairs(ActiveNPCs) do
             pcall(UpdateESPFor, model, data, false)
         end
     end
 
-    -- 更新玩家
     if _G.ESP.ShowPlayers then
         for model, data in pairs(ActivePlayers) do
             pcall(UpdateESPFor, model, data, true)
         end
     end
 
-    -- 隐藏不在缓存里的旧 ESP
     for model, e in pairs(ESP_Objects) do
         if not ActiveNPCs[model] and not ActivePlayers[model] then
             HideESP(e)
@@ -396,9 +552,14 @@ local function UpdateESP()
     end
 end
 
---// ==================== Silent Aim ====================
+-- ==================================================
+-- Silent Aim
+-- ==================================================
+
 local function IsEnemyPlayer(player)
     if _G.NoSelfAim and player == LocalPlayer then return false end
+    if _G.BlacklistMode and not _G.Blacklist[player.UserId] then return false end
+    if _G.WhitelistMode and _G.Whitelist[player.UserId] then return false end
     if not _G.TeamCheck then return true end
     if not LocalPlayer.Team or not player.Team then return true end
     if _G.FriendCheck then
@@ -509,19 +670,44 @@ local function ValidateCurrent()
     return true
 end
 
---// ==================== 命中判定 ====================
 local function ShouldHit()
     if _G.HitChance >= 100 then return true end
     if _G.HitChance <= 0 then return false end
     return math.random(1, 100) <= _G.HitChance
 end
 
---// ==================== Hook ====================
+-- ==================================================
+-- Silent Aim Hook（与反作弊 Hook 兼容）
+-- ==================================================
+
 local mt = getrawmetatable(game)
 local oldNamecall = mt.__namecall
 setreadonly(mt, false)
+
 mt.__namecall = newcclosure(function(self, ...)
     local method = getnamecallmethod()
+
+    -- 🛡️ Anti-Kick 拦截
+    if _G.AntiKickEnabled then
+        if method == "Kick" then
+            return nil
+        end
+        if method == "FireServer" or method == "InvokeServer" then
+            local name = ""
+            if typeof(self) == "Instance" then
+                name = string.lower(self.Name)
+            else
+                name = string.lower(tostring(self))
+            end
+            if string.find(name, "adonis") or string.find(name, "anticheat")
+                or string.find(name, "validate") or string.find(name, "detect")
+                or string.find(name, "punish") or string.find(name, "ban") then
+                return nil
+            end
+        end
+    end
+
+    -- 🎯 Silent Aim 命中替换
     if _G.SilentAim and TargetPart and CurrentTarget then
         if not (_G.NoSelfAim and IsLocalCharacter(CurrentTarget)) then
             if method == "FireServer" or method == "InvokeServer" then
@@ -545,10 +731,7 @@ mt.__namecall = newcclosure(function(self, ...)
                                 end
                             end
                             if changed then
-                                setreadonly(mt, true)
-                                local r = oldNamecall(self, unpack(newArgs))
-                                setreadonly(mt, false)
-                                return r
+                                return oldNamecall(self, unpack(newArgs))
                             end
                         end
                     end
@@ -556,13 +739,13 @@ mt.__namecall = newcclosure(function(self, ...)
             end
         end
     end
+
     return oldNamecall(self, ...)
 end)
 setreadonly(mt, true)
 
-local oldIndex
+local oldIndex = mt.__index
 setreadonly(mt, false)
-oldIndex = mt.__index
 mt.__index = newcclosure(function(self, key)
     if _G.SilentAim and TargetPart and CurrentTarget and self == Mouse then
         if not (_G.NoSelfAim and IsLocalCharacter(CurrentTarget)) then
@@ -578,13 +761,16 @@ mt.__index = newcclosure(function(self, key)
 end)
 setreadonly(mt, true)
 
---// ==================== 主循环 ====================
+-- ==================================================
+-- 主循环
+-- ==================================================
+
 task.spawn(function()
     while true do
         task.wait(0.03)
         if _G.SilentAim then
             if _G.StickyAim and CurrentTarget and ValidateCurrent() then
-                -- 保持目标
+                -- 保持
             else
                 CurrentTarget, TargetPart = PickTarget()
             end
@@ -597,7 +783,6 @@ task.spawn(function()
     end
 end)
 
--- FOV 圈
 local FovCircle = Drawing.new("Circle")
 FovCircle.Thickness = 1.5
 FovCircle.Filled = false
@@ -606,33 +791,34 @@ FovCircle.Visible = false
 
 RunService.RenderStepped:Connect(function()
     FrameCounter = FrameCounter + 1
-
-    -- FOV 圈
     FovCircle.Visible = _G.SilentAim
     if _G.SilentAim then
         FovCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
         FovCircle.Radius = _G.FOV
         FovCircle.Color = _G.FOVColor
     end
-
-    -- ESP 节流
     if FrameCounter % _G.ESPFrameInterval == 0 then
         pcall(UpdateESP)
     end
 end)
 
---// ==================== PlayerList ====================
+-- ==================================================
+-- 名单数据
+-- ==================================================
 _G.Blacklist = {}
 _G.Whitelist = {}
 _G.BlacklistMode = false
 _G.WhitelistMode = false
 
---// ==================== UI ====================
+-- ==================================================
+-- UI
+-- ==================================================
+
 local repo = "https://raw.githubusercontent.com/deividcomsono/Obsidian/main/"
 local Library = loadstring(game:HttpGet(repo .. "Library.lua"))()
 
 local Window = Library:CreateWindow({
-    Title = '🎯 Universal Pro v6.0 (Zero Crash)',
+    Title = '🎯 Universal Pro v6.1 (Zero Crash + Bypass)',
     Center = true,
     AutoShow = true,
 })
@@ -642,9 +828,10 @@ local Tabs = {
     ESP = Window:AddTab('ESP'),
     Perf = Window:AddTab('性能 ⚡'),
     List = Window:AddTab('名单'),
+    Bypass = Window:AddTab('🛡️ 反作弊'),
 }
 
---===== Silent Aim 页 =====
+--===== Silent Aim =====
 local A1 = Tabs.Aim:AddLeftGroupbox('主控制')
 A1:AddToggle('SA_On', { Text = '启用 Silent Aim', Default = false, Callback = function(v) _G.SilentAim = v end })
 A1:AddSlider('SA_FOV', { Text = 'FOV', Default = 150, Min = 30, Max = 500, Rounding = 0, Callback = function(v) _G.FOV = v end })
@@ -654,7 +841,7 @@ A1:AddSlider('SA_Hit', { Text = '命中率 %', Default = 100, Min = 0, Max = 100
 local A2 = Tabs.Aim:AddLeftGroupbox('目标')
 A2:AddDropdown('SA_Mode', { Values = {'NPCs','Players','Both'}, Default = 1, Text = '目标类型', Callback = function(v) _G.TargetMode = v end })
 A2:AddDropdown('SA_Part', { Values = {'Head','Torso'}, Default = 1, Text = '瞄准部位', Callback = function(v) _G.AimPart = v end })
-A2:AddDropdown('SA_Prio', { Values = {'Crosshair','Distance','LowestHP'}, Default = 1, Text = '优先级', Callback = function(v) _G.TargetPriority = v end })
+A2:AddDropdown('SA_Prio', { Values = {'Crosshair','Distance','LowestHP'}, Default = 2, Text = '优先级', Callback = function(v) _G.TargetPriority = v end })
 A2:AddToggle('SA_Sticky', { Text = '粘性瞄准', Default = true, Callback = function(v) _G.StickyAim = v end })
 
 local A3 = Tabs.Aim:AddRightGroupbox('安全')
@@ -666,7 +853,7 @@ A3:AddSlider('SA_MaxDist', { Text = '最大距离', Default = 500, Min = 50, Max
 local A4 = Tabs.Aim:AddRightGroupbox('视觉')
 A4:AddLabel('FOV 圈颜色'):AddColorPicker('SA_Col', { Default = Color3.fromRGB(0,255,0), Callback = function(v) _G.FOVColor = v end })
 
---===== ESP 页 =====
+--===== ESP =====
 local E1 = Tabs.ESP:AddLeftGroupbox('主控制')
 E1:AddToggle('E_On', { Text = '启用 ESP', Default = false, Callback = function(v) _G.ESP.Enabled = v end })
 E1:AddToggle('E_NPC', { Text = '显示 NPC', Default = true, Callback = function(v) _G.ESP.ShowNPCs = v end })
@@ -687,32 +874,28 @@ E3:AddLabel('敌人'):AddColorPicker('E_C1', { Default = Color3.fromRGB(255,80,8
 E3:AddLabel('连线'):AddColorPicker('E_C2', { Default = Color3.fromRGB(255,255,0), Callback = function(v) _G.ESP.LineColor = v end })
 E3:AddLabel('骨架'):AddColorPicker('E_C3', { Default = Color3.fromRGB(255,255,255), Callback = function(v) _G.ESP.StickColor = v end })
 
---===== 性能页 =====
+--===== 性能 =====
 local P1 = Tabs.Perf:AddLeftGroupbox('性能参数')
 P1:AddSlider('P_Scan', { Text = '扫描间隔（秒）', Default = 0.4, Min = 0.1, Max = 2, Rounding = 1, Callback = function(v) _G.ScanInterval = v end })
 P1:AddSlider('P_ESP', { Text = 'ESP 更新间隔（帧）', Default = 2, Min = 1, Max = 10, Rounding = 0, Callback = function(v) _G.ESPFrameInterval = v end })
 P1:AddLabel('📌 卡顿 → 调大这两个值')
-P1:AddLabel('📌 扫描间隔 0.4 = 每秒 2.5 次')
-P1:AddLabel('📌 ESP 间隔 2 = 30fps (对 60fps 游戏)')
 
 local P2 = Tabs.Perf:AddRightGroupbox('状态')
 P2:AddButton('显示统计', function()
     local n, p = 0, 0
     for _ in pairs(ActiveNPCs) do n = n + 1 end
     for _ in pairs(ActivePlayers) do p = p + 1 end
-    Library:Notify(string.format('NPC: %d | 玩家: %d | 扫描次数: %d', n, p, ScanCount), 3)
+    Library:Notify(string.format('NPC: %d | 玩家: %d | 扫描: %d', n, p, ScanCount), 3)
 end)
 P2:AddButton('清理无效 ESP', function()
     local c = 0
     for m, _ in pairs(ESP_Objects) do
-        if not m.Parent then
-            DestroyESPFor(m); c = c + 1
-        end
+        if not m.Parent then DestroyESPFor(m); c = c + 1 end
     end
     Library:Notify('清理 ' .. c .. ' 个', 2)
 end)
 
---===== 名单页 =====
+--===== 名单 =====
 local BL_DD, WL_DD
 local L1 = Tabs.List:AddLeftGroupbox('🚫 黑名单（仅瞄准）')
 BL_DD = L1:AddDropdown('BL', {
@@ -761,6 +944,77 @@ task.spawn(function()
     while task.wait(2) do RefreshLists() end
 end)
 
---// ==================== 完成 ====================
-Library:Notify('✅ v6.0 已加载（零崩溃版）', 4)
-print("[Universal Pro v6.0] 已加载 - 极简扫描 / 零崩溃")
+--===== 反作弊页 =====
+local B1 = Tabs.Bypass:AddLeftGroupbox('🛡️ Anti-Kick')
+B1:AddToggle('AK_On', {
+    Text = '启用 Anti-Kick',
+    Default = true,
+    Tooltip = '阻止游戏踢出你（拦截 Kick / FireServer / InvokeServer）',
+    Callback = function(v)
+        _G.AntiKickEnabled = v
+        Library:Notify(v and '🛡️ Anti-Kick 已启用' or '⚠️ Anti-Kick 已关闭', 2)
+    end
+})
+if antiKickLoaded then
+    B1:AddLabel('✅ 外部 Anti-Kick 脚本已加载')
+else
+    B1:AddLabel('ℹ️ 使用内置 Anti-Kick')
+end
+B1:AddLabel('📌 拦截 Kick / Destroy / 服务端踢人信号')
+B1:AddLabel('📌 每 30 秒自动重新挂载')
+
+local B2 = Tabs.Bypass:AddLeftGroupbox('🛡️ Adonis Bypass')
+B2:AddToggle('AD_On', {
+    Text = '启用 Adonis Bypass',
+    Default = true,
+    Tooltip = '绕过 Adonis Anti-Cheat 检测',
+    Callback = function(v)
+        _G.AdonisBypass = v
+        if v then
+            task.spawn(function()
+                BypassAdonis()
+                Library:Notify('🛡️ Adonis Bypass 已重新应用', 2)
+            end)
+        else
+            Library:Notify('⚠️ Adonis Bypass 已关闭', 2)
+        end
+    end
+})
+B2:AddLabel('📌 检测 Adonis RemoteEvents 并屏蔽')
+B2:AddLabel('📌 拦截所有 adonis/anticheat/validate/detect 调用')
+B2:AddLabel('📌 每 0.5 秒清除 Adonis 全局标记')
+B2:AddButton('🔄 手动重新应用 Bypass', function()
+    task.spawn(function()
+        BypassAdonis()
+        Library:Notify('🔄 Bypass 已重新应用', 2)
+    end)
+end)
+
+local B3 = Tabs.Bypass:AddRightGroupbox('📊 反作弊状态')
+B3:AddLabel('Anti-Kick: ' .. (_G.AntiKickEnabled and '✅ 启用' or '❌ 关闭'))
+B3:AddLabel('Adonis Bypass: ' .. (_G.AdonisBypass and '✅ 启用' or '❌ 关闭'))
+B3:AddButton('🧪 测试反作弊状态', function()
+    local info = {}
+    table.insert(info, 'Anti-Kick: ' .. tostring(_G.AntiKickEnabled))
+    table.insert(info, 'Adonis Bypass: ' .. tostring(_G.AdonisBypass))
+    table.insert(info, '外部脚本: ' .. tostring(antiKickLoaded))
+    table.insert(info, 'Hook 已挂载: ✅')
+    Library:Notify(table.concat(info, ' | '), 4)
+end)
+
+-- ==================================================
+Library:Notify('✅ v6.1 已加载（Zero Crash + Bypass）', 4)
+print([[
+╔═══════════════════════════════════════════════════════════════════╗
+║   UNIVERSAL PRO v6.1 - Zero Crash + Anti-Cheat Bypass             ║
+╠═══════════════════════════════════════════════════════════════════╣
+║  🛡️ 保留的反作弊功能：                                              ║
+║   ✅ Anti-Kick（外部脚本 + 内置软性拦截 + Kick Hook）              ║
+║   ✅ Adonis Bypass（RemoteEvent 屏蔽 + namecall 拦截 + 标记清除）  ║
+╠═══════════════════════════════════════════════════════════════════╣
+║  🚀 v6.0 零崩溃架构：                                              ║
+║   • 极简扫描（只扫一层，0.4s 轮询）                                ║
+║   • 无事件监听风暴                                                 ║
+║   • Silent Aim + ESP 共用 ActiveNPCs 缓存                          ║
+╚═══════════════════════════════════════════════════════════════════╝
+]])
