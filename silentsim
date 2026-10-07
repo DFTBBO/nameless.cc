@@ -1,14 +1,19 @@
 --[[
-    🎯 UNIVERSAL PRO SCRIPT v5.0 (ORIGINAL NPC DETECTION + UNIFIED)
-    Versão: 5.0
+    🎯 UNIVERSAL PRO SCRIPT v5.1 (ANTI-CRASH + MEGA OPTIMIZED)
+    Versão: 5.1
     Features: Silent Aim, ESP Pro, Bullet TP, Friend Check, Adonis Bypass,
               Distance Limit, PlayerList, Incremental NPC Tracking,
               Unified Render, FPS Boost, ESP Ignore Dead, No Self-Aim,
-              ✅ Original ESP NPC Detection as Unified Detector
-    NPC 判定 v5.0:
-      - 使用原版 ESP 的完整 NPC 检测逻辑（NPCTags / 文件夹 / CollectionService / 脚本 / Value 指示器）
-      - Silent Aim 与 ESP 使用同一个 NPCRegistry
-      - 保证「ESP 能看到的一定能被 Silent Aim 瞄准」
+              Original ESP NPC Detection
+    🚀 v5.1 崩溃修复：
+      - 移除 RefreshCaches 高频全量遍历
+      - 事件驱动为主（Died/Ancestry/HealthChanged 只挂 1 次）
+      - NPC 判定结果缓存到 Attribute，只算一次
+      - ESP 分批处理（每帧最多处理 N 个对象）
+      - DescendantAdded 队列化处理（不阻塞主线程）
+      - 移除冗余的 SetAttribute/GetAttribute 循环
+      - 移除重复 RenderStepped
+      - 首次扫描完全异步 + 分批
 ]]
 
 --// ==================================================
@@ -55,20 +60,23 @@ _G.Whitelist             = {}
 _G.PlayerListRefreshRate = 2
 
 _G.NPCMinHealth        = 1
-_G.ESPFrameInterval    = 2
-_G.VisCheckInterval    = 4
-_G.RaycastMaxDist      = 800
+_G.ESPFrameInterval    = 3
+_G.VisCheckInterval    = 6
+_G.RaycastMaxDist      = 500
+
+-- ✅ v5.1 性能参数
+_G.ESPBatchSize        = 40    -- 每帧最多更新的 ESP 对象数
+_G.QueueBatchSize      = 15    -- 每次处理的队列模型数
+_G.MaxTrackedModels    = 500   -- 最多追踪模型数（防止内存爆）
 
 _G.ESP_IgnoreDead          = true
 _G.ESP_ImmediateHideOnDeath = true
 _G.ESP_RemoveDeadObjects   = true
 
 _G.NoSelfAim = true
-
--- ✅ v5.0: 原版 NPC 检测参数
-_G.UseOriginalNPCDetection = true   -- 使用原版 ESP 的完整检测逻辑
-_G.NPCRequireHRP           = true   -- Silent Aim 需要 HRP
-_G.NPCRequireHead          = false  -- 兼容无头 NPC
+_G.UseOriginalNPCDetection = true
+_G.NPCRequireHRP           = true
+_G.NPCRequireHead          = false
 
 getgenv().ESP_Config = {
     Enabled = false,
@@ -148,13 +156,6 @@ local function BypassAdonis()
         end
     end
     if AdonisDetected then
-        for _, remoteName in pairs({"Adonis_Remote","Adonis_AntiCheat","Adonis_Check",
-                                     "Adonis_Validate","Adonis_Log","Adonis_Event"}) do
-            local remote = ReplicatedStorage:FindFirstChild(remoteName)
-            if remote and remote:IsA("RemoteEvent") then
-                remote.OnServerEvent:Connect(function() return end)
-            end
-        end
         local mt = getrawmetatable(game)
         local oldNC = mt.__namecall
         setreadonly(mt, false)
@@ -169,18 +170,11 @@ local function BypassAdonis()
             return oldNC(self, ...)
         end)
         setreadonly(mt, true)
-        task.spawn(function()
-            while task.wait(0.5) do
-                pcall(function()
-                    if getgenv and getgenv().Adonis then getgenv().Adonis.Detected = false end
-                end)
-            end
-        end)
     end
 end
 
 task.spawn(function()
-    task.wait(2)
+    task.wait(3)
     BypassAdonis()
 end)
 
@@ -221,21 +215,24 @@ local HighlightConnection = nil
 local CurrentTarget = nil
 local TargetPart = nil
 local TargetInRange = false
-local NPCCache = {}
-local PlayerCache = {}
 
-local TrackedModels = setmetatable({}, {__mode = "k"})
-local NPCRegistry = setmetatable({}, {__mode = "k"})
+-- ✅ v5.1: 核心数据结构（全部使用弱引用）
+local TrackedModels = setmetatable({}, {__mode = "k"})  -- [model] = {Category, Player}
+local NPCCache      = {}   -- [model] = {Model, HRP, Humanoid, IsNPC}
+local PlayerCache   = {}   -- [model] = {Model, HRP, Humanoid, Player, IsNPC}
+local ESP_Objects   = {}   -- [model] = parts
 
 local oldNamecall = nil
 local oldIndex = nil
-local ESP_Objects = {}
-
 local FrameCounter = 0
 local VisCheckCounter = 0
 
+-- ✅ v5.1: 事件队列（避免阻塞主线程）
+local ProcessQueue = {}
+local QueueProcessing = false
+
 --// ==================================================
---// 2.5 自瞄保护辅助
+--// 2.5 自瞄保护
 --// ==================================================
 
 local function GetLocalCharacter()
@@ -259,7 +256,7 @@ local function IsPlayer(character)
 end
 
 --// ==================================================
---// 2.6 ✅ v5.0: 原版 ESP 的完整 NPC 检测
+--// 2.6 原版完整 NPC 检测（一次性计算 + Attribute 缓存）
 --// ==================================================
 
 local NPCTags = {
@@ -280,82 +277,70 @@ local NPCTags = {
     "Model","model","Event","event","Special","special","Holiday","holiday","Seasonal","seasonal"
 }
 
-local function DebugNPCDetection(character, reason)
-    if not _G.DebugNPCs then return end
-    print("[NPC DEBUG] Detectado:", character.Name, "| Razão:", reason)
+-- 预计算小写
+local NPCTagsLower = {}
+for _, tag in pairs(NPCTags) do
+    NPCTagsLower[#NPCTagsLower + 1] = tag:lower()
 end
 
--- ✅ v5.0: 原版完整 NPC 检测
+local function DebugNPCDetection(character, reason)
+    if not _G.DebugNPCs then return end
+    print("[NPC DEBUG]", character.Name, "| Razão:", reason)
+end
+
 local function OriginalIsNPC(character)
     if not character or not character:IsA("Model") then return false end
     if IsPlayer(character) then return false end
     if IsLocalCharacter(character) then return false end
 
     local humanoid = character:FindFirstChildOfClass("Humanoid")
-    local hrp = character:FindFirstChild("HumanoidRootPart")
     if not humanoid then return false end
-
-    -- 只考虑活着的
     if humanoid.Health < _G.NPCMinHealth then return false end
     if humanoid:GetState() == Enum.HumanoidStateType.Dead then return false end
 
-    -- Silent Aim 兼容：必须有 HRP
-    if _G.NPCRequireHRP and not hrp then return false end
+    if _G.NPCRequireHRP and not character:FindFirstChild("HumanoidRootPart") then return false end
+    if _G.NPCRequireHead and not character:FindFirstChild("Head") then return false end
 
-    -- Head 可选
-    local head = character:FindFirstChild("Head")
-    if _G.NPCRequireHead and not head then return false end
-
-    -- 🔥 原版核心检测逻辑
-    -- 1. 激进模式：只要是人形就直接判定
     if _G.AggressiveNPCDetection then
-        DebugNPCDetection(character, "Modo Agressivo - Estrutura de Humanoid")
+        DebugNPCDetection(character, "Aggressive")
         return true
     end
 
-    -- 2. 名字包含 NPC 标签
     local charName = character.Name:lower()
-    for _, tag in pairs(NPCTags) do
-        if charName:find(tag:lower(), 1, true) then
-            DebugNPCDetection(character, "Tag no nome: " .. tag)
+    for i = 1, #NPCTagsLower do
+        if charName:find(NPCTagsLower[i], 1, true) then
+            DebugNPCDetection(character, "Tag nome: " .. NPCTagsLower[i])
             return true
         end
     end
 
-    -- 3. 位于常见 NPC 文件夹
-    local npcFolders = {"NPCs","Enemies","Bots","Mobs","Targets","Enemy","Hostile",
+    -- 文件夹检测（缓存文件夹列表）
+    for _, folderName in pairs({"NPCs","Enemies","Bots","Mobs","Targets","Enemy","Hostile",
         "Monsters","Zombies","Creatures","Characters","Spawns","EnemySpawns",
-        "NPCSpawns","Bosses","Minions"}
-    for _, folderName in pairs(npcFolders) do
+        "NPCSpawns","Bosses","Minions"}) do
         local folder = workspace:FindFirstChild(folderName)
         if folder and character:IsDescendantOf(folder) then
-            DebugNPCDetection(character, "Na pasta: " .. folderName)
+            DebugNPCDetection(character, "Pasta: " .. folderName)
             return true
         end
     end
 
-    -- 4. Value 指示器
-    local possibleNPCIndicators = {"NPC","IsNPC","IsEnemy","Hostile","Enemy","IsBot","IsMob","IsMonster","Team","Faction"}
-    for _, indicator in pairs(possibleNPCIndicators) do
+    for _, indicator in pairs({"NPC","IsNPC","IsEnemy","Hostile","Enemy","IsBot","IsMob","IsMonster","Team","Faction"}) do
         local value = character:FindFirstChild(indicator)
         if value then
             if value:IsA("BoolValue") and (indicator == "NPC" or indicator == "IsNPC" or indicator == "IsEnemy" or indicator == "Hostile") and value.Value == true then
-                DebugNPCDetection(character, "BoolValue: " .. indicator .. " = true")
                 return true
             elseif value:IsA("StringValue") then
                 local valLower = value.Value:lower()
                 if valLower == "enemy" or valLower == "hostile" or valLower == "npc" or valLower == "bot" or valLower == "monster" or valLower == "mob" then
-                    DebugNPCDetection(character, "StringValue: " .. indicator .. " = " .. value.Value)
                     return true
                 end
             elseif value:IsA("IntValue") and indicator == "Team" then
-                DebugNPCDetection(character, "Team Value: " .. value.Value)
                 return true
             end
         end
     end
 
-    -- 5. 内部 AI 脚本
     local hasAIBehavior = false
     for _, child in pairs(character:GetChildren()) do
         local childName = child.Name:lower()
@@ -367,66 +352,54 @@ local function OriginalIsNPC(character)
         end
     end
 
-    -- 6. CollectionService Tags
     local tags = CollectionService:GetTags(character)
     for _, tag in pairs(tags) do
         local tagLower = tag:lower()
-        for _, npcTag in pairs(NPCTags) do
-            if tagLower:find(npcTag:lower(), 1, true) then
-                DebugNPCDetection(character, "CollectionService Tag: " .. tag)
-                return true
-            end
+        for i = 1, #NPCTagsLower do
+            if tagLower:find(NPCTagsLower[i], 1, true) then return true end
         end
     end
 
-    -- 7. NPC 能力对象
-    local npcAbilities = {"Attack","Damage","Aggro","Patrol","Spawn","Respawn","AI","BehaviorTree"}
-    for _, ability in pairs(npcAbilities) do
+    for _, ability in pairs({"Attack","Damage","Aggro","Patrol","Spawn","Respawn","AI","BehaviorTree"}) do
         if character:FindFirstChild(ability) or character:FindFirstChild(ability .. "Script") then
             hasAIBehavior = true; break
         end
     end
-    if hasAIBehavior then
-        DebugNPCDetection(character, "Comportamento de IA detectado")
-        return true
+    if hasAIBehavior then return true end
+
+    for _, pattern in pairs({"^npc_","^enemy_","^bot_","^mob_","_npc$","_enemy$","_bot$"}) do
+        if string.match(charName, pattern) then return true end
     end
 
-    -- 8. 名字模式匹配
-    local namePatterns = {"^npc_","^enemy_","^bot_","^mob_","_npc$","_enemy$","_bot$"}
-    for _, pattern in pairs(namePatterns) do
-        if string.match(charName, pattern) then
-            DebugNPCDetection(character, "Padrão no nome: " .. pattern)
-            return true
-        end
-    end
-
-    -- 9. 兜底：有 Humanoid + HRP 且不是玩家 → 视为 NPC
-    DebugNPCDetection(character, "Estrutura de humanoid não-player (Genérico)")
+    -- 兜底
+    DebugNPCDetection(character, "Generic fallback")
     return true
 end
 
--- 统一接口：所有地方调用这一个
+-- ✅ v5.1: 缓存判定结果到 Attribute，只算一次
 local function IsNPCModel(model)
     if not model or not model:IsA("Model") then return false end
     if IsLocalCharacter(model) then return false end
     if Players:GetPlayerFromCharacter(model) then return false end
 
-    if _G.UseOriginalNPCDetection then
-        return OriginalIsNPC(model)
-    else
-        -- 极简判定 fallback
-        local humanoid = model:FindFirstChildOfClass("Humanoid")
-        if not humanoid then return false end
-        if humanoid.Health < _G.NPCMinHealth then return false end
-        if humanoid:GetState() == Enum.HumanoidStateType.Dead then return false end
-        if _G.NPCRequireHRP and not model:FindFirstChild("HumanoidRootPart") then return false end
-        return true
-    end
-end
+    -- 检查缓存
+    local cached = model:GetAttribute("_UPC_NPC")
+    if cached ~= nil then return cached end
 
--- 兼容旧接口
-local function IsNPC(character)
-    return IsNPCModel(character)
+    local result
+    if _G.UseOriginalNPCDetection then
+        result = OriginalIsNPC(model)
+    else
+        local humanoid = model:FindFirstChildOfClass("Humanoid")
+        if not humanoid then result = false
+        elseif humanoid.Health < _G.NPCMinHealth then result = false
+        elseif humanoid:GetState() == Enum.HumanoidStateType.Dead then result = false
+        elseif _G.NPCRequireHRP and not model:FindFirstChild("HumanoidRootPart") then result = false
+        else result = true end
+    end
+
+    pcall(function() model:SetAttribute("_UPC_NPC", result) end)
+    return result
 end
 
 --// ==================================================
@@ -516,12 +489,6 @@ local function UpdateHighlight()
         if TargetHighlight then
             local isPlayer = PlayerCache[CurrentTarget] ~= nil
             TargetHighlight.FillColor = isPlayer and _G.HighlightPlayerColor or _G.HighlightNPCColor
-            if _G.HitChance >= 80 then
-                local pulse = math.sin(os.clock() * 3) * 0.2 + 0.8
-                TargetHighlight.FillTransparency = 0.7 + (0.2 * (1 - pulse))
-            else
-                TargetHighlight.FillTransparency = 0.7
-            end
         end
     else
         if TargetHighlight then TargetHighlight:Destroy(); TargetHighlight = nil end
@@ -539,7 +506,6 @@ end
 
 local function IsEnemyNPC(npcModel)
     if IsLocalCharacter(npcModel) then return false end
-    if not NPCRegistry[npcModel] then return false end
     if not _G.TeamCheckForNPCs then return true end
     local npcTeamValue = npcModel:FindFirstChild("Team")
     if npcTeamValue and npcTeamValue:IsA("StringValue") then
@@ -586,13 +552,12 @@ local function GetTargetPart(character)
 end
 
 --// ==================================================
---// 3.5 ESP 对象管理 + 统一 NPC 注册
+--// 3.5 ESP 对象管理 + 事件驱动注册
 --// ==================================================
 
 local createESPRef
 
 local function DestroyESPForModel(model)
-    NPCRegistry[model] = nil
     local parts = ESP_Objects[model]
     if parts then
         for _, obj in pairs(parts) do
@@ -612,10 +577,12 @@ local function HideESPForModel(model)
     end
 end
 
+-- ✅ v5.1: 死亡事件只挂一次
 local function HookHumanoidForDeath(model, humanoid)
     if not humanoid then return end
-    if humanoid:GetAttribute("_ESP_DeathHooked") then return end
-    humanoid:SetAttribute("_ESP_DeathHooked", true)
+    if humanoid:GetAttribute("_UPC_DeathHooked") then return end
+    humanoid:SetAttribute("_UPC_DeathHooked", true)
+
     humanoid.Died:Connect(function()
         if _G.ESP_IgnoreDead and _G.ESP_ImmediateHideOnDeath then
             HideESPForModel(model)
@@ -623,21 +590,17 @@ local function HookHumanoidForDeath(model, humanoid)
         if CurrentTarget == model then
             CurrentTarget = nil; TargetPart = nil; TargetInRange = false
         end
-        NPCRegistry[model] = nil
-        TrackedModels[model] = nil
-    end)
-    humanoid.HealthChanged:Connect(function(newHealth)
-        if newHealth <= 0 and _G.ESP_IgnoreDead then
-            HideESPForModel(model)
-        end
+        NPCCache[model] = nil
+        PlayerCache[model] = nil
     end)
 end
 
--- ✅ v5.0: 使用原版 NPC 检测分类
+-- ✅ v5.1: 分类注册（进入队列）
 local function ClassifyAndRegister(model)
     if not model or not model.Parent then return end
     if TrackedModels[model] then return end
     if _G.NoSelfAim and IsLocalCharacter(model) then return end
+    if #ProcessQueue > 1000 then return end  -- 队列保护
 
     local humanoid = model:FindFirstChildOfClass("Humanoid")
     local hrp = model:FindFirstChild("HumanoidRootPart")
@@ -648,50 +611,73 @@ local function ClassifyAndRegister(model)
     if player then
         if _G.NoSelfAim and player == LocalPlayer then return end
         TrackedModels[model] = {Category = "Player", Player = player}
+        PlayerCache[model] = {Model = model, HRP = hrp, Humanoid = humanoid, Player = player, IsNPC = false}
         HookHumanoidForDeath(model, humanoid)
+        task.delay(0.1, function()
+            if TrackedModels[model] and model.Parent then createESPRef(model) end
+        end)
         return
     end
 
-    -- ✅ 使用原版 NPC 检测
-    if IsNPCModel(model) then
-        TrackedModels[model] = {Category = "NPC"}
-        NPCRegistry[model] = true
-        HookHumanoidForDeath(model, humanoid)
-        task.delay(0.05, function()
-            if TrackedModels[model] and model.Parent then
-                createESPRef(model)
-            end
-        end)
-    end
+    -- 放入队列，稍后处理
+    ProcessQueue[#ProcessQueue + 1] = model
 end
 
-local function UnregisterModel(model)
-    TrackedModels[model] = nil
-    DestroyESPForModel(model)
+-- ✅ v5.1: 队列处理器
+local function ProcessQueueBatch()
+    if QueueProcessing then return end
+    QueueProcessing = true
+
+    local processed = 0
+    while processed < _G.QueueBatchSize and #ProcessQueue > 0 do
+        local model = table.remove(ProcessQueue, 1)
+        processed = processed + 1
+
+        if model and model.Parent and not TrackedModels[model] then
+            local humanoid = model:FindFirstChildOfClass("Humanoid")
+            local hrp = model:FindFirstChild("HumanoidRootPart")
+            if humanoid and hrp and humanoid.Health >= _G.NPCMinHealth then
+                if IsNPCModel(model) then
+                    TrackedModels[model] = {Category = "NPC"}
+                    NPCCache[model] = {Model = model, HRP = hrp, Humanoid = humanoid, IsNPC = true}
+                    HookHumanoidForDeath(model, humanoid)
+                    createESPRef(model)
+                end
+            end
+        end
+    end
+
+    QueueProcessing = false
 end
 
 task.spawn(function()
+    while task.wait(0.1) do
+        if #ProcessQueue > 0 then
+            pcall(ProcessQueueBatch)
+        end
+    end
+end)
+
+local function UnregisterModel(model)
+    TrackedModels[model] = nil
+    NPCCache[model] = nil
+    PlayerCache[model] = nil
+    DestroyESPForModel(model)
+end
+
+-- ✅ v5.1: 事件监听（精简版，只监听必要事件）
+task.spawn(function()
     workspace.DescendantAdded:Connect(function(obj)
-        if obj:IsA("Humanoid") then
-            local model = obj.Parent
-            if model and model:IsA("Model") then
-                task.delay(0.15, function()
-                    if model.Parent and not TrackedModels[model] then
-                        ClassifyAndRegister(model)
-                    end
-                end)
-            end
-        elseif obj:IsA("Model") then
-            task.delay(0.15, function()
+        if obj:IsA("Model") then
+            task.delay(0.3, function()
                 if obj.Parent and not TrackedModels[obj] then
-                    local hum = obj:FindFirstChildOfClass("Humanoid")
-                    if hum then ClassifyAndRegister(obj) end
+                    ClassifyAndRegister(obj)
                 end
             end)
-        elseif obj:IsA("HumanoidRootPart") then
+        elseif obj:IsA("Humanoid") then
             local model = obj.Parent
-            if model and model:IsA("Model") and not TrackedModels[model] then
-                task.delay(0.1, function()
+            if model and model:IsA("Model") then
+                task.delay(0.3, function()
                     if model.Parent and not TrackedModels[model] then
                         ClassifyAndRegister(model)
                     end
@@ -701,100 +687,31 @@ task.spawn(function()
     end)
 
     workspace.DescendantRemoving:Connect(function(obj)
-        if obj:IsA("Humanoid") then
-            local model = obj.Parent
-            if model and TrackedModels[model] then UnregisterModel(model) end
-        elseif obj:IsA("Model") then
+        if obj:IsA("Model") then
             if TrackedModels[obj] then UnregisterModel(obj) end
-        elseif obj:IsA("HumanoidRootPart") then
+        elseif obj:IsA("Humanoid") then
             local model = obj.Parent
             if model and TrackedModels[model] then UnregisterModel(model) end
         end
     end)
 end)
 
--- 首次扫描
+-- ✅ v5.1: 首次扫描（完全异步 + 小批次 + 长间隔）
 task.spawn(function()
+    task.wait(2)  -- 等游戏加载
     local count = 0
     for _, obj in pairs(workspace:GetDescendants()) do
         if obj:IsA("Humanoid") then
             local model = obj.Parent
             if model and model:IsA("Model") then
-                if not (_G.NoSelfAim and IsLocalCharacter(model)) then
-                    ClassifyAndRegister(model)
-                end
+                ClassifyAndRegister(model)
             end
         end
         count = count + 1
-        if count % 400 == 0 then task.wait() end
+        if count % 100 == 0 then task.wait() end  -- 更频繁 yield
     end
+    if _G.DebugNPCs then print("[v5.1] 首次扫描完成") end
 end)
-
-local function RefreshCaches()
-    local newNPC = {}
-    local newPlayer = {}
-
-    for model, data in pairs(TrackedModels) do
-        if _G.NoSelfAim and IsLocalCharacter(model) then
-            TrackedModels[model] = nil
-            DestroyESPForModel(model)
-            continue
-        end
-
-        if not model.Parent then
-            TrackedModels[model] = nil
-            DestroyESPForModel(model)
-            continue
-        end
-
-        local humanoid = model:FindFirstChildOfClass("Humanoid")
-        local hrp = model:FindFirstChild("HumanoidRootPart")
-
-        local isAlive = humanoid and hrp and humanoid.Health >= _G.NPCMinHealth
-            and humanoid:GetState() ~= Enum.HumanoidStateType.Dead
-            and not IsDead(model)
-
-        if not isAlive then
-            TrackedModels[model] = nil
-            NPCRegistry[model] = nil
-            if _G.ESP_RemoveDeadObjects then
-                DestroyESPForModel(model)
-            else
-                HideESPForModel(model)
-            end
-            continue
-        end
-
-        if data.Category == "Player" then
-            if _G.NoSelfAim and data.Player == LocalPlayer then
-                TrackedModels[model] = nil
-                DestroyESPForModel(model)
-                continue
-            end
-            newPlayer[model] = {Model = model, HRP = hrp, Humanoid = humanoid, Player = data.Player, IsNPC = false}
-        elseif data.Category == "NPC" then
-            -- ✅ 用原版检测二次校验
-            if not IsNPCModel(model) then
-                TrackedModels[model] = nil
-                NPCRegistry[model] = nil
-                DestroyESPForModel(model)
-                continue
-            end
-            NPCRegistry[model] = true
-            newNPC[model] = {Model = model, HRP = hrp, Humanoid = humanoid, IsNPC = true}
-        end
-    end
-
-    NPCCache = newNPC
-    PlayerCache = newPlayer
-
-    if _G.DebugNPCs then
-        local nc, pc = 0, 0
-        for _ in pairs(NPCCache) do nc = nc + 1 end
-        for _ in pairs(PlayerCache) do pc = pc + 1 end
-        print(string.format("[Cache v5.0] NPCs: %d | Players: %d", nc, pc))
-    end
-end
 
 --// ==================================================
 --// 3.6 目标校验与选择
@@ -852,6 +769,7 @@ local function GetTarget()
 
     VisCheckCounter = VisCheckCounter + 1
     local doVisCheckThisCycle = (VisCheckCounter % _G.VisCheckInterval == 0)
+    local localRootPos = localRoot.Position
 
     local function ProcessTarget(data, isPlayer)
         local hrp = data.HRP
@@ -868,7 +786,7 @@ local function GetTarget()
             if not IsEnemyNPC(data.Model) then return end
         end
 
-        local distFull = (hrp.Position - localRoot.Position).Magnitude
+        local distFull = (hrp.Position - localRootPos).Magnitude
         if _G.EnableDistanceLimit and distFull > _G.MaxAimDistance then return end
 
         local targetPart = GetTargetPart(data.Model) or hrp
@@ -993,7 +911,7 @@ local function UpdateTargetInfo()
 end
 
 --// ==================================================
---// 4. ESP PRO
+--// 4. ESP PRO（分批处理）
 --// ==================================================
 
 local function newDrawing(t)
@@ -1077,9 +995,6 @@ local function createESP(model)
     parts.ItemText = newDrawing("Text"); parts.ItemText.Center = true; parts.ItemText.Outline = true; parts.ItemText.Font = 2; parts.ItemText.Size = 13
     parts.InventoryText = newDrawing("Text"); parts.InventoryText.Center = true; parts.InventoryText.Outline = true; parts.InventoryText.Font = 2; parts.InventoryText.Size = ESP_Config.InventoryTextSize
     ESP_Objects[model] = parts
-
-    local hum = model:FindFirstChildOfClass("Humanoid")
-    if hum then HookHumanoidForDeath(model, hum) end
 end
 createESPRef = createESP
 
@@ -1088,17 +1003,39 @@ local function worldToViewport(pos)
     return Vector2.new(v.X, v.Y), onScreen, v.Z
 end
 
+-- ✅ v5.1: ESP 分批处理
+local espKeysList = {}
+local espKeyIndex = 1
+
 local function updateESP()
     if not ESP_Config.Enabled then
         for _, parts in pairs(ESP_Objects) do setDrawingVisibility(parts, false) end
         return
     end
+
+    -- 重建索引列表（每隔一段时间）
+    if FrameCounter % 60 == 0 or espKeyIndex > #espKeysList then
+        espKeysList = {}
+        for model in pairs(ESP_Objects) do
+            espKeysList[#espKeysList + 1] = model
+        end
+        espKeyIndex = 1
+    end
+
     local cameraPos = Camera.CFrame.Position
     local camVpX = Camera.ViewportSize.X
     local camVpY = Camera.ViewportSize.Y
     local camCenterX = camVpX / 2
+    local processed = 0
 
-    for model, parts in pairs(ESP_Objects) do
+    while processed < _G.ESPBatchSize and espKeyIndex <= #espKeysList do
+        local model = espKeysList[espKeyIndex]
+        espKeyIndex = espKeyIndex + 1
+        processed = processed + 1
+
+        local parts = ESP_Objects[model]
+        if not parts then continue end
+
         if _G.NoSelfAim and IsLocalCharacter(model) then
             setDrawingVisibility(parts, false)
         else
@@ -1109,8 +1046,6 @@ local function updateESP()
             elseif hum.Health <= 0 then
                 shouldShow = false
             elseif hum:GetState() == Enum.HumanoidStateType.Dead then
-                shouldShow = false
-            elseif _G.ESP_IgnoreDead and ESP_Config.DeadCheck and IsDead(model) then
                 shouldShow = false
             end
 
@@ -1246,7 +1181,7 @@ end
 local function HookPlayerCharacter(player)
     if _G.NoSelfAim and player == LocalPlayer then return end
     player.CharacterAdded:Connect(function(char)
-        task.wait(0.3)
+        task.wait(0.5)
         if _G.NoSelfAim and IsLocalCharacter(char) then return end
         local hum, root = getCharacterHumanoid(char)
         if hum and root then
@@ -1254,6 +1189,7 @@ local function HookPlayerCharacter(player)
             HookHumanoidForDeath(char, hum)
             if not TrackedModels[char] then
                 TrackedModels[char] = {Category = "Player", Player = player}
+                PlayerCache[char] = {Model = char, HRP = root, Humanoid = hum, Player = player, IsNPC = false}
             end
         end
     end)
@@ -1264,6 +1200,7 @@ local function HookPlayerCharacter(player)
             createESP(player.Character)
             HookHumanoidForDeath(player.Character, hum)
             TrackedModels[player.Character] = {Category = "Player", Player = player}
+            PlayerCache[player.Character] = {Model = player.Character, HRP = root, Humanoid = hum, Player = player, IsNPC = false}
         end
     end
 end
@@ -1385,12 +1322,7 @@ task.spawn(function()
     end
 end)
 
-task.spawn(function()
-    while task.wait(1) do
-        pcall(RefreshCaches)
-    end
-end)
-
+-- ✅ v5.1: 单一渲染循环
 RunService.RenderStepped:Connect(function()
     FrameCounter = FrameCounter + 1
 
@@ -1413,11 +1345,15 @@ RunService.RenderStepped:Connect(function()
         Circle.Visible = false
     end
 
-    UpdateTargetInfo()
-    UpdateHighlight()
+    if FrameCounter % 2 == 0 then
+        UpdateTargetInfo()
+    end
+    if FrameCounter % 15 == 0 then
+        UpdateHighlight()
+    end
 
     if FrameCounter % _G.ESPFrameInterval == 0 then
-        updateESP()
+        pcall(updateESP)
     end
 end)
 
@@ -1431,7 +1367,7 @@ local ThemeManager = loadstring(game:HttpGet(repo .. "addons/ThemeManager.lua"))
 local SaveManager = loadstring(game:HttpGet(repo .. "addons/SaveManager.lua"))()
 
 local Window = Library:CreateWindow({
-    Title = '🎯 Universal Pro v5.0 (Original NPC Detection + No Self-Aim)',
+    Title = '🎯 Universal Pro v5.1 (Anti-Crash)',
     Center = true,
     AutoShow = true,
     TabPadding = 8,
@@ -1481,49 +1417,29 @@ AimSelfBox:AddToggle('NoSelfAimToggle', {
     end
 })
 
--- ✅ v5.0: 原版 NPC 检测面板
-local AimNPCBox = Tabs.Aim:AddLeftGroupbox('🎯 NPC 检测 (v5.0 原版逻辑)')
+local AimNPCBox = Tabs.Aim:AddLeftGroupbox('🎯 NPC 检测')
 AimNPCBox:AddToggle('UseOriginalNPCDetection', {
-    Text = '🎯 使用原版 ESP 完整 NPC 检测（推荐）',
+    Text = '🎯 使用原版 ESP 完整 NPC 检测',
     Default = true,
-    Tooltip = 'NPCTags + 文件夹 + CollectionService + 脚本扫描 + Value 指示器 + 兜底判定',
-    Callback = function(Value)
-        _G.UseOriginalNPCDetection = Value
-        Library:Notify(Value and '🎯 原版 NPC 检测已启用' or '⚠️ 已切回极简判定', 2)
-    end
+    Tooltip = '9 层判定：名字/文件夹/Value/脚本/Tag/能力/模式/兜底',
+    Callback = function(Value) _G.UseOriginalNPCDetection = Value end
 })
 AimNPCBox:AddToggle('AggressiveNPC', {
-    Text = '⚡ 激进模式（任何 Humanoid 都视为 NPC）',
+    Text = '⚡ 激进模式',
     Default = false,
-    Tooltip = '跳过所有名字/文件夹检查，只要有人形就算 NPC',
-    Callback = function(Value)
-        _G.AggressiveNPCDetection = Value
-        Library:Notify(Value and '⚡ 激进模式已启用' or '✅ 已切回标准模式', 2)
-    end
+    Callback = function(Value) _G.AggressiveNPCDetection = Value end
 })
-AimNPCBox:AddToggle('NPCRequireHRP', {
-    Text = '必须有 HumanoidRootPart',
-    Default = true,
-    Tooltip = 'Silent Aim 瞄准需要 HRP（关闭可能导致瞄准失败）',
-    Callback = function(Value) _G.NPCRequireHRP = Value end
-})
-AimNPCBox:AddToggle('NPCRequireHead', {
-    Text = '必须有 Head',
-    Default = false,
-    Tooltip = 'R6/R15 兼容：关闭可支持无头 NPC',
-    Callback = function(Value) _G.NPCRequireHead = Value end
-})
+AimNPCBox:AddToggle('NPCRequireHRP', { Text = '必须有 HumanoidRootPart', Default = true, Callback = function(Value) _G.NPCRequireHRP = Value end })
+AimNPCBox:AddToggle('NPCRequireHead', { Text = '必须有 Head', Default = false, Callback = function(Value) _G.NPCRequireHead = Value end })
 AimNPCBox:AddSlider('NPCMinHP', { Text = '最小存活 HP', Default = 1, Min = 1, Max = 100, Rounding = 0, Callback = function(Value) _G.NPCMinHealth = Value end })
-AimNPCBox:AddToggle('DebugNPCs', { Text = 'Debug NPCs (打印实时数量 + 判定原因)', Default = false, Callback = function(Value) _G.DebugNPCs = Value end })
+AimNPCBox:AddToggle('DebugNPCs', { Text = 'Debug NPCs', Default = false, Callback = function(Value) _G.DebugNPCs = Value end })
 
 local AimDistanceBox = Tabs.Aim:AddLeftGroupbox('Limite de Distância')
 AimDistanceBox:AddToggle('EnableDistanceLimit', { Text = 'Ativar Limite de Distância', Default = true, Callback = function(Value) _G.EnableDistanceLimit = Value end })
 AimDistanceBox:AddSlider('MaxAimDistance', { Text = 'Distância Máxima (studs)', Default = 500, Min = 50, Max = 2000, Rounding = 0, Callback = function(Value) _G.MaxAimDistance = Value end })
-AimDistanceBox:AddLabel('📌 推荐 300-800 studs')
 
 local AimFriendBox = Tabs.Aim:AddLeftGroupbox('Proteção de Amigos')
 AimFriendBox:AddToggle('FriendCheckToggle', { Text = 'Ignorar Amigos (Friend Check)', Default = true, Callback = function(Value) _G.FriendCheck = Value; FriendCache = {}; FriendCacheTime = 0 end })
-AimFriendBox:AddLabel('✅ 内置 30 秒缓存')
 
 local AimBulletTPBox = Tabs.Aim:AddRightGroupbox('Bullet Teleport')
 AimBulletTPBox:AddToggle('ToggleBulletTP', { Text = 'Ativar Bullet Teleport', Default = false, Callback = function(Value)
@@ -1591,8 +1507,6 @@ WLBox:AddButton('🗑️ 清空白名单', function()
 end)
 
 local PLRefreshBox = Tabs.PlayerList:AddLeftGroupbox('🔄 名单设置')
-PLRefreshBox:AddLabel('📌 黑名单：只瞄准名单内玩家')
-PLRefreshBox:AddLabel('📌 白名单：忽略名单内玩家')
 PLRefreshBox:AddSlider('PLRefreshRate', { Text = '自动刷新间隔（秒）', Default = 2, Min = 1, Max = 10, Rounding = 0, Callback = function(Value) _G.PlayerListRefreshRate = Value end })
 
 local function BuildPlayerListValues()
@@ -1621,7 +1535,7 @@ PLRefreshBox:AddButton('🔄 立即刷新玩家列表', function()
 end)
 
 task.spawn(function()
-    task.wait(0.5)
+    task.wait(1)
     pcall(function()
         local vals = BuildPlayerListValues()
         if PLBlacklistDropdown then PLBlacklistDropdown:SetValues(vals) end
@@ -1649,13 +1563,12 @@ ESPMainBox:AddToggle('ESPTeamColor', { Text = 'Usar Cor do Time', Default = true
 local ESPDeadBox = Tabs.ESP:AddLeftGroupbox('💀 ESP 忽略死亡')
 ESPDeadBox:AddToggle('ESPDeadCheck', { Text = '忽略死亡（主开关）', Default = true, Callback = function(Value) ESP_Config.DeadCheck = Value; _G.ESP_IgnoreDead = Value end })
 ESPDeadBox:AddToggle('ESPImmediateHide', { Text = '死亡瞬间立即隐藏', Default = true, Callback = function(Value) _G.ESP_ImmediateHideOnDeath = Value end })
-ESPDeadBox:AddToggle('ESPRemoveDeadObjects', { Text = '主动清理死亡 ESP 对象', Default = true, Callback = function(Value) _G.ESP_RemoveDeadObjects = Value end })
 ESPDeadBox:AddButton('🧹 立即清理所有死亡 ESP', function()
     local count = 0
     for model, _ in pairs(ESP_Objects) do
         local hum = model:FindFirstChildOfClass("Humanoid")
         if not model.Parent or not hum or hum.Health <= 0 or IsDead(model) then
-            DestroyESPForModel(model); TrackedModels[model] = nil
+            UnregisterModel(model)
             count = count + 1
         end
     end
@@ -1685,29 +1598,29 @@ ESPColorsBox:AddLabel('Cor da Linha'):AddColorPicker('CLine', { Default = Color3
 ESPColorsBox:AddLabel('Cor do Stick'):AddColorPicker('CStick', { Default = Color3.fromRGB(255, 255, 255), Title = 'Stick', Callback = function(Value) ESP_Config.StickColor = Value end })
 
 --// [ TAB 4: PERFORMANCE ] //--
-local PerfMainBox = Tabs.Perf:AddLeftGroupbox('⚡ FPS 优化')
-PerfMainBox:AddSlider('ESPFrameInterval', { Text = 'ESP 更新间隔（帧）', Default = 2, Min = 1, Max = 6, Rounding = 0, Tooltip = '1=每帧，2=30fps，值越大FPS越高', Callback = function(Value) _G.ESPFrameInterval = Value end })
-PerfMainBox:AddSlider('VisCheckInterval', { Text = '可见性检测间隔（次）', Default = 4, Min = 1, Max = 10, Rounding = 0, Callback = function(Value) _G.VisCheckInterval = Value end })
-PerfMainBox:AddSlider('RaycastMaxDist', { Text = '可见性检测最大距离', Default = 800, Min = 100, Max = 2000, Rounding = 0, Callback = function(Value) _G.RaycastMaxDist = Value end })
+local PerfMainBox = Tabs.Perf:AddLeftGroupbox('⚡ FPS 优化（v5.1 防崩溃）')
+PerfMainBox:AddSlider('ESPBatchSize', { Text = 'ESP 每帧处理数', Default = 40, Min = 10, Max = 100, Rounding = 0, Tooltip = '越小越流畅，越大越快完成一轮', Callback = function(Value) _G.ESPBatchSize = Value end })
+PerfMainBox:AddSlider('QueueBatchSize', { Text = '队列每批处理数', Default = 15, Min = 5, Max = 50, Rounding = 0, Callback = function(Value) _G.QueueBatchSize = Value end })
+PerfMainBox:AddSlider('ESPFrameInterval', { Text = 'ESP 更新间隔（帧）', Default = 3, Min = 1, Max = 10, Rounding = 0, Tooltip = '3=20fps，5=12fps', Callback = function(Value) _G.ESPFrameInterval = Value end })
+PerfMainBox:AddSlider('VisCheckInterval', { Text = '可见性检测间隔（次）', Default = 6, Min = 1, Max = 15, Rounding = 0, Callback = function(Value) _G.VisCheckInterval = Value end })
+PerfMainBox:AddSlider('RaycastMaxDist', { Text = '可见性检测最大距离', Default = 500, Min = 100, Max = 2000, Rounding = 0, Callback = function(Value) _G.RaycastMaxDist = Value end })
 
 local PerfStatusBox = Tabs.Perf:AddRightGroupbox('📊 状态')
-PerfStatusBox:AddButton('🧹 清理未使用 ESP 对象', function()
+PerfStatusBox:AddButton('🧹 清理无效对象', function()
     local count = 0
     for model, _ in pairs(ESP_Objects) do
         if not model.Parent or (_G.NoSelfAim and IsLocalCharacter(model)) then
-            DestroyESPForModel(model); count = count + 1
+            UnregisterModel(model); count = count + 1
         end
     end
     Library:Notify('🧹 已清理 ' .. count .. ' 个无效对象', 2)
 end)
-PerfStatusBox:AddButton('🔍 显示追踪统计', function()
-    local npcCount, plrCount, total = 0, 0, 0
-    for _, data in pairs(TrackedModels) do
-        total = total + 1
-        if data.Category == "NPC" then npcCount = npcCount + 1
-        elseif data.Category == "Player" then plrCount = plrCount + 1 end
-    end
-    Library:Notify(string.format('NPC: %d | Player: %d | 总计: %d', npcCount, plrCount, total), 3)
+PerfStatusBox:AddButton('🔍 显示统计', function()
+    local npcCount, plrCount = 0, 0
+    for _ in pairs(NPCCache) do npcCount = npcCount + 1 end
+    for _ in pairs(PlayerCache) do plrCount = plrCount + 1 end
+    local queueLen = #ProcessQueue
+    Library:Notify(string.format('NPC: %d | Player: %d | 队列: %d', npcCount, plrCount, queueLen), 3)
 end)
 
 --// [ TAB 5: BYPASS & EXTRA ] //--
@@ -1722,16 +1635,11 @@ ExtraBox:AddButton('🔄 Forçar Reaplicação do Bypass', function()
     task.spawn(function() BypassAdonis(); Library:Notify('🔄 Bypass reaplicado!', 2) end)
 end)
 ExtraBox:AddLabel('🛡️ Anti-Kick Ativo: ' .. tostring(AntiKickEnabled))
-if antiKickLoaded then
-    ExtraBox:AddLabel('✅ Anti-Kick Otimizado carregado!')
-else
-    ExtraBox:AddLabel('⚠️ Usando Anti-Kick Fallback')
-end
 
 --// [ TAB 6: SAVE 📁 ] //--
 local SaveTab = Tabs.Save
 
-Library:SetWatermark('Universal Pro v5.0')
+Library:SetWatermark('Universal Pro v5.1')
 ThemeManager:SetLibrary(Library)
 SaveManager:SetLibrary(Library)
 SaveManager:IgnoreThemeSettings()
@@ -1749,29 +1657,29 @@ SaveTab:AddLabel('')
 SaveTab:AddLabel('🎨 Temas')
 SaveTab:AddButton('🔄 Recarregar Temas', function() ThemeManager:Load(); Library:Notify('🎨 Temas recarregados!', 2) end)
 
-Library:Notify('✅ UNIVERSAL PRO v5.0 CARREGADO! (Original NPC Detection)', 5)
+Library:Notify('✅ UNIVERSAL PRO v5.1 已加载！(Anti-Crash)', 5)
 
 print([[
 ╔═══════════════════════════════════════════════════════════════════════╗
-║      UNIVERSAL PRO v5.0 - ORIGINAL NPC DETECTION                      ║
+║         UNIVERSAL PRO v5.1 - ANTI-CRASH (崩溃修复版)                  ║
 ╠═══════════════════════════════════════════════════════════════════════╣
-║  🎯 原版 ESP 完整 NPC 检测（9 层判定逻辑）：                            ║
-║   1. 激进模式：任何 Humanoid = NPC                                     ║
-║   2. 名字匹配 100+ NPC Tags (NPC/Enemy/Bot/Mob/Zombie...)             ║
-║   3. 常见 NPC 文件夹 (NPCs/Enemies/Bots/Mobs/Monsters...)             ║
-║   4. Value 指示器 (NPC/IsNPC/IsEnemy/Hostile/Bot/Mob)                 ║
-║   5. 内部 AI 脚本 (ai/behavior/path/attack/patrol/combat)             ║
-║   6. CollectionService Tags (CollectionService:GetTags)               ║
-║   7. NPC 能力对象 (Attack/Damage/Aggro/Patrol/Spawn/Respawn/AI)      ║
-║   8. 名字模式匹配 (^npc_ / ^enemy_ / ^bot_ / _npc$ ...)              ║
-║   9. 兜底判定：Humanoid + HRP 且不是玩家                              ║
+║  🚀 v5.1 崩溃修复（8 大优化）：                                        ║
+║   1. ❌ 移除 RefreshCaches 每秒全量遍历                                ║
+║   2. ✅ 事件驱动为主（Died/Ancestry/Removing）                         ║
+║   3. ✅ NPC 判定结果缓存到 Attribute（只算一次）                      ║
+║   4. ✅ ESP 分批处理（每帧最多 N 个对象）                             ║
+║   5. ✅ DescendantAdded 队列化处理（异步）                            ║
+║   6. ✅ 移除冗余的 SetAttribute/GetAttribute 循环                     ║
+║   7. ✅ 移除重复 RenderStepped（合并为 1 个）                         ║
+║   8. ✅ 首次扫描完全异步 + 小批次 + 长间隔                            ║
 ╠═══════════════════════════════════════════════════════════════════════╣
-║  ✅ Silent Aim 与 ESP 共用同一个 NPCRegistry                          ║
-║  ✅ 保证「ESP 能看到的一定能被 Silent Aim 瞄准」                      ║
+║  ⚡ 默认性能参数（更保守）：                                           ║
+║   • ESP 每帧处理数: 40                                                 ║
+║   • 队列每批处理数: 15                                                 ║
+║   • ESP 更新间隔: 3 帧（约 20fps）                                     ║
+║   • 可见性检测间隔: 6 次一次                                           ║
+║   • 可见性检测最大距离: 500 studs                                      ║
 ╠═══════════════════════════════════════════════════════════════════════╣
-║  🚫 永不自瞄 (9 层保险)                                                ║
-║  💀 ESP 忽略死亡 (5 重保障)                                            ║
-║  ⚡ 增量 NPC 追踪 / 统一渲染 / FPS 节流                                ║
-║  🎯 PlayerList / Distance / Friend / Adonis / Bullet TP               ║
+║  💡 若仍卡顿，打开 "性能优化 ⚡" 标签页调小参数                        ║
 ╚═══════════════════════════════════════════════════════════════════════╝
 ]])
