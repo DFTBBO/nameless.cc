@@ -1,15 +1,14 @@
 --[[
-    🎯 UNIVERSAL PRO SCRIPT v4.7 (ESP IGNORE DEAD + MEGA OPTIMIZED)
-    Versão: 4.7
+    🎯 UNIVERSAL PRO SCRIPT v5.0 (ORIGINAL NPC DETECTION + UNIFIED)
+    Versão: 5.0
     Features: Silent Aim, ESP Pro, Bullet TP, Friend Check, Adonis Bypass,
               Distance Limit, PlayerList, Incremental NPC Tracking,
-              Unified Render, FPS Boost, ESP Ignore Dead (强化)
-    ESP Dead Handling:
-      - Humanoid.Died 事件监听 → 立即隐藏
-      - Humanoid.HealthChanged 监听 → Health<=0 时立即隐藏
-      - updateESP 每帧二次校验（Health + State + K.O）
-      - RefreshCaches 主动清理死亡模型
-      - 模型销毁时自动销毁 ESP 对象
+              Unified Render, FPS Boost, ESP Ignore Dead, No Self-Aim,
+              ✅ Original ESP NPC Detection as Unified Detector
+    NPC 判定 v5.0:
+      - 使用原版 ESP 的完整 NPC 检测逻辑（NPCTags / 文件夹 / CollectionService / 脚本 / Value 指示器）
+      - Silent Aim 与 ESP 使用同一个 NPCRegistry
+      - 保证「ESP 能看到的一定能被 Silent Aim 瞄准」
 ]]
 
 --// ==================================================
@@ -60,10 +59,16 @@ _G.ESPFrameInterval    = 2
 _G.VisCheckInterval    = 4
 _G.RaycastMaxDist      = 800
 
--- ✅ v4.7: ESP 忽略死亡强化
-_G.ESP_IgnoreDead          = true   -- ESP 忽略死亡（主开关）
-_G.ESP_ImmediateHideOnDeath = true  -- 死亡瞬间立即隐藏（事件驱动）
-_G.ESP_RemoveDeadObjects   = true   -- 主动清理死亡对象（防止内存泄漏）
+_G.ESP_IgnoreDead          = true
+_G.ESP_ImmediateHideOnDeath = true
+_G.ESP_RemoveDeadObjects   = true
+
+_G.NoSelfAim = true
+
+-- ✅ v5.0: 原版 NPC 检测参数
+_G.UseOriginalNPCDetection = true   -- 使用原版 ESP 的完整检测逻辑
+_G.NPCRequireHRP           = true   -- Silent Aim 需要 HRP
+_G.NPCRequireHead          = false  -- 兼容无头 NPC
 
 getgenv().ESP_Config = {
     Enabled = false,
@@ -220,6 +225,7 @@ local NPCCache = {}
 local PlayerCache = {}
 
 local TrackedModels = setmetatable({}, {__mode = "k"})
+local NPCRegistry = setmetatable({}, {__mode = "k"})
 
 local oldNamecall = nil
 local oldIndex = nil
@@ -227,6 +233,201 @@ local ESP_Objects = {}
 
 local FrameCounter = 0
 local VisCheckCounter = 0
+
+--// ==================================================
+--// 2.5 自瞄保护辅助
+--// ==================================================
+
+local function GetLocalCharacter()
+    return LocalPlayer.Character
+end
+
+local function IsLocalCharacter(model)
+    if not model then return true end
+    local localChar = GetLocalCharacter()
+    if not localChar then return false end
+    if model == localChar then return true end
+    local owner = Players:GetPlayerFromCharacter(model)
+    if owner and owner == LocalPlayer then return true end
+    return false
+end
+
+local function IsPlayer(character)
+    if not character or not character:IsA("Model") then return false end
+    if character == LocalPlayer.Character then return true end
+    return Players:GetPlayerFromCharacter(character) ~= nil
+end
+
+--// ==================================================
+--// 2.6 ✅ v5.0: 原版 ESP 的完整 NPC 检测
+--// ==================================================
+
+local NPCTags = {
+    "NPC","Npc","npc","Enemy","enemy","Enemies","enemies",
+    "Hostile","hostile","Bad","bad","BadGuy","badguy","Foe","foe","Opponent","opponent",
+    "Bot","bot","Bots","bots","Mob","mob","Mobs","mobs","Monster","monster","Monsters","monsters",
+    "Zombie","zombie","Zombies","zombies","Creature","creature","Animal","animal","Beast","beast",
+    "Villain","villain","Villian","villian","Boss","boss","MiniBoss","miniboss",
+    "Guard","guard","Guardian","guardian","Soldier","soldier","Warrior","warrior","Fighter","fighter",
+    "Target","target","Dummy","dummy","Dummies","dummies","Practice","practice","Training","training",
+    "Skeleton","skeleton","Orc","orc","Goblin","goblin","Troll","troll","Ogre","ogre",
+    "Demon","demon","Devil","devil","Ghost","ghost","Spirit","spirit","Vampire","vampire","Werewolf","werewolf",
+    "Dragon","dragon","Wyvern","wyvern","Gang","gang","Thug","thug","Bandit","bandit","Raider","raider",
+    "Pirate","pirate","Corsair","corsair","Agent","agent","Assassin","assassin",
+    "Mercenary","mercenary","Hunter","hunter","Robot","robot","Drone","drone",
+    "Android","android","Cyborg","cyborg","Automaton","automaton","Servant","servant","Minion","minion",
+    "Slave","slave","Pawn","pawn","AI","ai","A.I.","Char","char","Character","character",
+    "Model","model","Event","event","Special","special","Holiday","holiday","Seasonal","seasonal"
+}
+
+local function DebugNPCDetection(character, reason)
+    if not _G.DebugNPCs then return end
+    print("[NPC DEBUG] Detectado:", character.Name, "| Razão:", reason)
+end
+
+-- ✅ v5.0: 原版完整 NPC 检测
+local function OriginalIsNPC(character)
+    if not character or not character:IsA("Model") then return false end
+    if IsPlayer(character) then return false end
+    if IsLocalCharacter(character) then return false end
+
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    if not humanoid then return false end
+
+    -- 只考虑活着的
+    if humanoid.Health < _G.NPCMinHealth then return false end
+    if humanoid:GetState() == Enum.HumanoidStateType.Dead then return false end
+
+    -- Silent Aim 兼容：必须有 HRP
+    if _G.NPCRequireHRP and not hrp then return false end
+
+    -- Head 可选
+    local head = character:FindFirstChild("Head")
+    if _G.NPCRequireHead and not head then return false end
+
+    -- 🔥 原版核心检测逻辑
+    -- 1. 激进模式：只要是人形就直接判定
+    if _G.AggressiveNPCDetection then
+        DebugNPCDetection(character, "Modo Agressivo - Estrutura de Humanoid")
+        return true
+    end
+
+    -- 2. 名字包含 NPC 标签
+    local charName = character.Name:lower()
+    for _, tag in pairs(NPCTags) do
+        if charName:find(tag:lower(), 1, true) then
+            DebugNPCDetection(character, "Tag no nome: " .. tag)
+            return true
+        end
+    end
+
+    -- 3. 位于常见 NPC 文件夹
+    local npcFolders = {"NPCs","Enemies","Bots","Mobs","Targets","Enemy","Hostile",
+        "Monsters","Zombies","Creatures","Characters","Spawns","EnemySpawns",
+        "NPCSpawns","Bosses","Minions"}
+    for _, folderName in pairs(npcFolders) do
+        local folder = workspace:FindFirstChild(folderName)
+        if folder and character:IsDescendantOf(folder) then
+            DebugNPCDetection(character, "Na pasta: " .. folderName)
+            return true
+        end
+    end
+
+    -- 4. Value 指示器
+    local possibleNPCIndicators = {"NPC","IsNPC","IsEnemy","Hostile","Enemy","IsBot","IsMob","IsMonster","Team","Faction"}
+    for _, indicator in pairs(possibleNPCIndicators) do
+        local value = character:FindFirstChild(indicator)
+        if value then
+            if value:IsA("BoolValue") and (indicator == "NPC" or indicator == "IsNPC" or indicator == "IsEnemy" or indicator == "Hostile") and value.Value == true then
+                DebugNPCDetection(character, "BoolValue: " .. indicator .. " = true")
+                return true
+            elseif value:IsA("StringValue") then
+                local valLower = value.Value:lower()
+                if valLower == "enemy" or valLower == "hostile" or valLower == "npc" or valLower == "bot" or valLower == "monster" or valLower == "mob" then
+                    DebugNPCDetection(character, "StringValue: " .. indicator .. " = " .. value.Value)
+                    return true
+                end
+            elseif value:IsA("IntValue") and indicator == "Team" then
+                DebugNPCDetection(character, "Team Value: " .. value.Value)
+                return true
+            end
+        end
+    end
+
+    -- 5. 内部 AI 脚本
+    local hasAIBehavior = false
+    for _, child in pairs(character:GetChildren()) do
+        local childName = child.Name:lower()
+        if child:IsA("Script") or child:IsA("LocalScript") then
+            if childName:find("ai") or childName:find("behavior") or childName:find("path")
+                or childName:find("attack") or childName:find("patrol") or childName:find("combat") then
+                hasAIBehavior = true; break
+            end
+        end
+    end
+
+    -- 6. CollectionService Tags
+    local tags = CollectionService:GetTags(character)
+    for _, tag in pairs(tags) do
+        local tagLower = tag:lower()
+        for _, npcTag in pairs(NPCTags) do
+            if tagLower:find(npcTag:lower(), 1, true) then
+                DebugNPCDetection(character, "CollectionService Tag: " .. tag)
+                return true
+            end
+        end
+    end
+
+    -- 7. NPC 能力对象
+    local npcAbilities = {"Attack","Damage","Aggro","Patrol","Spawn","Respawn","AI","BehaviorTree"}
+    for _, ability in pairs(npcAbilities) do
+        if character:FindFirstChild(ability) or character:FindFirstChild(ability .. "Script") then
+            hasAIBehavior = true; break
+        end
+    end
+    if hasAIBehavior then
+        DebugNPCDetection(character, "Comportamento de IA detectado")
+        return true
+    end
+
+    -- 8. 名字模式匹配
+    local namePatterns = {"^npc_","^enemy_","^bot_","^mob_","_npc$","_enemy$","_bot$"}
+    for _, pattern in pairs(namePatterns) do
+        if string.match(charName, pattern) then
+            DebugNPCDetection(character, "Padrão no nome: " .. pattern)
+            return true
+        end
+    end
+
+    -- 9. 兜底：有 Humanoid + HRP 且不是玩家 → 视为 NPC
+    DebugNPCDetection(character, "Estrutura de humanoid não-player (Genérico)")
+    return true
+end
+
+-- 统一接口：所有地方调用这一个
+local function IsNPCModel(model)
+    if not model or not model:IsA("Model") then return false end
+    if IsLocalCharacter(model) then return false end
+    if Players:GetPlayerFromCharacter(model) then return false end
+
+    if _G.UseOriginalNPCDetection then
+        return OriginalIsNPC(model)
+    else
+        -- 极简判定 fallback
+        local humanoid = model:FindFirstChildOfClass("Humanoid")
+        if not humanoid then return false end
+        if humanoid.Health < _G.NPCMinHealth then return false end
+        if humanoid:GetState() == Enum.HumanoidStateType.Dead then return false end
+        if _G.NPCRequireHRP and not model:FindFirstChild("HumanoidRootPart") then return false end
+        return true
+    end
+end
+
+-- 兼容旧接口
+local function IsNPC(character)
+    return IsNPCModel(character)
+end
 
 --// ==================================================
 --// 3. 基础函数
@@ -252,6 +453,7 @@ local FRIEND_CACHE_TTL = 30
 local function IsFriend(player)
     if not player then return false end
     if not LocalPlayer or not LocalPlayer:IsA("Player") then return false end
+    if player == LocalPlayer then return false end
     local now = os.clock()
     if now - FriendCacheTime > FRIEND_CACHE_TTL then
         FriendCache = {}; FriendCacheTime = now
@@ -280,6 +482,7 @@ end
 
 local function CreateHighlight(target)
     if not target or not target:IsA("Model") then return nil end
+    if IsLocalCharacter(target) then return nil end
     if TargetHighlight then TargetHighlight:Destroy(); TargetHighlight = nil end
     if HighlightConnection then HighlightConnection:Disconnect(); HighlightConnection = nil end
     local highlight = Instance.new("Highlight")
@@ -302,6 +505,9 @@ local function UpdateHighlight()
         if TargetHighlight then TargetHighlight:Destroy(); TargetHighlight = nil end
         if HighlightConnection then HighlightConnection:Disconnect(); HighlightConnection = nil end
         return
+    end
+    if CurrentTarget and IsLocalCharacter(CurrentTarget) then
+        CurrentTarget = nil; TargetPart = nil
     end
     if CurrentTarget then
         if not TargetHighlight or TargetHighlight.Adornee ~= CurrentTarget then
@@ -331,114 +537,9 @@ local function CleanupUIOnly()
     CurrentTarget = nil; TargetPart = nil; TargetInRange = false
 end
 
-local NPCTags = {
-    "NPC","Npc","npc","Enemy","enemy","Enemies","enemies",
-    "Hostile","hostile","Bad","bad","BadGuy","badguy","Foe","foe","Opponent","opponent",
-    "Bot","bot","Bots","bots","Mob","mob","Mobs","mobs","Monster","monster","Monsters","monsters",
-    "Zombie","zombie","Zombies","zombies","Creature","creature","Animal","animal","Beast","beast",
-    "Villain","villain","Villian","villian","Boss","boss","MiniBoss","miniboss",
-    "Guard","guard","Guardian","guardian","Soldier","soldier","Warrior","warrior","Fighter","fighter",
-    "Target","target","Dummy","dummy","Dummies","dummies","Practice","practice","Training","training",
-    "Skeleton","skeleton","Orc","orc","Goblin","goblin","Troll","troll","Ogre","ogre",
-    "Demon","demon","Devil","devil","Ghost","ghost","Spirit","spirit","Vampire","vampire","Werewolf","werewolf",
-    "Dragon","dragon","Wyvern","wyvern","Gang","gang","Thug","thug","Bandit","bandit","Raider","raider",
-    "Pirate","pirate","Corsair","corsair","Agent","agent","Assassin","assassin",
-    "Mercenary","mercenary","Hunter","hunter","Robot","robot","Drone","drone",
-    "Android","android","Cyborg","cyborg","Automaton","automaton","Servant","servant","Minion","minion",
-    "Slave","slave","Pawn","pawn","AI","ai","A.I.","Char","char","Character","character",
-    "Model","model","Event","event","Special","special","Holiday","holiday","Seasonal","seasonal"
-}
-
-local function IsPlayer(character)
-    if not character or not character:IsA("Model") then return false end
-    if character == LocalPlayer.Character then return true end
-    return Players:GetPlayerFromCharacter(character) ~= nil
-end
-
-local function IsNPC(character)
-    if not character or not character:IsA("Model") then return false end
-    if IsPlayer(character) then return false end
-
-    local humanoid = character:FindFirstChildOfClass("Humanoid")
-    local head = character:FindFirstChild("Head")
-    local hrp = character:FindFirstChild("HumanoidRootPart")
-    if not humanoid or not head or not hrp then return false end
-
-    if humanoid.Health <= 0 then return false end
-    if humanoid:GetState() == Enum.HumanoidStateType.Dead then return false end
-
-    if _G.AggressiveNPCDetection then return true end
-
-    local charName = character.Name:lower()
-    for _, tag in pairs(NPCTags) do
-        if charName:find(tag:lower(), 1, true) then return true end
-    end
-
-    local npcFolders = {"NPCs","Enemies","Bots","Mobs","Targets","Enemy","Hostile",
-        "Monsters","Zombies","Creatures","Characters","Spawns","EnemySpawns",
-        "NPCSpawns","Bosses","Minions"}
-    for _, folderName in pairs(npcFolders) do
-        local folder = workspace:FindFirstChild(folderName)
-        if folder and character:IsDescendantOf(folder) then return true end
-    end
-
-    for _, indicator in pairs({"NPC","IsNPC","IsEnemy","Hostile","Enemy","IsBot","IsMob","IsMonster","Team","Faction"}) do
-        local value = character:FindFirstChild(indicator)
-        if value then
-            if value:IsA("BoolValue") and (indicator == "NPC" or indicator == "IsNPC" or indicator == "IsEnemy" or indicator == "Hostile") and value.Value == true then
-                return true
-            elseif value:IsA("StringValue") then
-                local valLower = value.Value:lower()
-                if valLower == "enemy" or valLower == "hostile" or valLower == "npc" or valLower == "bot" or valLower == "monster" or valLower == "mob" then
-                    return true
-                end
-            elseif value:IsA("IntValue") and indicator == "Team" then
-                return true
-            end
-        end
-    end
-
-    for _, child in pairs(character:GetChildren()) do
-        local childName = child.Name:lower()
-        if (child:IsA("Script") or child:IsA("LocalScript")) then
-            if childName:find("ai") or childName:find("behavior") or childName:find("path")
-                or childName:find("attack") or childName:find("patrol") or childName:find("combat") then
-                return true
-            end
-        end
-    end
-
-    local tags = CollectionService:GetTags(character)
-    for _, tag in pairs(tags) do
-        local tagLower = tag:lower()
-        for _, npcTag in pairs(NPCTags) do
-            if tagLower:find(npcTag:lower(), 1, true) then return true end
-        end
-    end
-
-    for _, ability in pairs({"Attack","Damage","Aggro","Patrol","Spawn","Respawn","AI","BehaviorTree"}) do
-        if character:FindFirstChild(ability) or character:FindFirstChild(ability .. "Script") then return true end
-    end
-
-    local namePatterns = {"^npc_","^enemy_","^bot_","^mob_","_npc$","_enemy$","_bot$"}
-    for _, pattern in pairs(namePatterns) do
-        if string.match(charName, pattern) then return true end
-    end
-
-    return true
-end
-
-local function IsEnemyPlayer(player)
-    if not player then return false end
-    if _G.BlacklistMode and not IsInBlacklist(player) then return false end
-    if _G.WhitelistMode and IsInWhitelist(player) then return false end
-    if not _G.TeamCheck then return true end
-    if not LocalPlayer.Team or not player.Team then return true end
-    if _G.FriendCheck and IsFriend(player) then return false end
-    return LocalPlayer.Team ~= player.Team
-end
-
 local function IsEnemyNPC(npcModel)
+    if IsLocalCharacter(npcModel) then return false end
+    if not NPCRegistry[npcModel] then return false end
     if not _G.TeamCheckForNPCs then return true end
     local npcTeamValue = npcModel:FindFirstChild("Team")
     if npcTeamValue and npcTeamValue:IsA("StringValue") then
@@ -451,9 +552,22 @@ local function IsEnemyNPC(npcModel)
     return true
 end
 
+local function IsEnemyPlayer(player)
+    if not player then return false end
+    if _G.NoSelfAim and player == LocalPlayer then return false end
+    if player.Character and IsLocalCharacter(player.Character) then return false end
+    if _G.BlacklistMode and not IsInBlacklist(player) then return false end
+    if _G.WhitelistMode and IsInWhitelist(player) then return false end
+    if not _G.TeamCheck then return true end
+    if not LocalPlayer.Team or not player.Team then return true end
+    if _G.FriendCheck and IsFriend(player) then return false end
+    return LocalPlayer.Team ~= player.Team
+end
+
 local function GetTargetPart(character)
     local ap = _G.AimPart
-    if ap == "Head" then return character:FindFirstChild("Head")
+    if ap == "Head" then
+        return character:FindFirstChild("Head") or character:FindFirstChild("HumanoidRootPart")
     elseif ap == "Torso" then
         return character:FindFirstChild("UpperTorso") or character:FindFirstChild("Torso") or character:FindFirstChild("HumanoidRootPart")
     elseif ap == "Random" then
@@ -472,13 +586,13 @@ local function GetTargetPart(character)
 end
 
 --// ==================================================
---// 3.5 ESP 对象管理（✅ v4.7 强化死亡处理）
+--// 3.5 ESP 对象管理 + 统一 NPC 注册
 --// ==================================================
 
 local createESPRef
 
--- 销毁单个模型的 ESP 对象
 local function DestroyESPForModel(model)
+    NPCRegistry[model] = nil
     local parts = ESP_Objects[model]
     if parts then
         for _, obj in pairs(parts) do
@@ -489,7 +603,6 @@ local function DestroyESPForModel(model)
     end
 end
 
--- 隐藏单个模型的 ESP 对象（保留，不销毁）
 local function HideESPForModel(model)
     local parts = ESP_Objects[model]
     if parts then
@@ -499,25 +612,20 @@ local function HideESPForModel(model)
     end
 end
 
--- ✅ v4.7: 监听 Humanoid 死亡事件（事件驱动，立即隐藏）
 local function HookHumanoidForDeath(model, humanoid)
     if not humanoid then return end
-    -- 用属性标记避免重复监听
     if humanoid:GetAttribute("_ESP_DeathHooked") then return end
     humanoid:SetAttribute("_ESP_DeathHooked", true)
-
-    -- Died 事件：立即隐藏
     humanoid.Died:Connect(function()
         if _G.ESP_IgnoreDead and _G.ESP_ImmediateHideOnDeath then
             HideESPForModel(model)
         end
-        -- 从瞄准缓存移除
         if CurrentTarget == model then
             CurrentTarget = nil; TargetPart = nil; TargetInRange = false
         end
+        NPCRegistry[model] = nil
+        TrackedModels[model] = nil
     end)
-
-    -- HealthChanged 事件：Health <= 0 时立即隐藏
     humanoid.HealthChanged:Connect(function(newHealth)
         if newHealth <= 0 and _G.ESP_IgnoreDead then
             HideESPForModel(model)
@@ -525,10 +633,11 @@ local function HookHumanoidForDeath(model, humanoid)
     end)
 end
 
--- 增量注册
+-- ✅ v5.0: 使用原版 NPC 检测分类
 local function ClassifyAndRegister(model)
     if not model or not model.Parent then return end
     if TrackedModels[model] then return end
+    if _G.NoSelfAim and IsLocalCharacter(model) then return end
 
     local humanoid = model:FindFirstChildOfClass("Humanoid")
     local hrp = model:FindFirstChild("HumanoidRootPart")
@@ -537,14 +646,18 @@ local function ClassifyAndRegister(model)
 
     local player = Players:GetPlayerFromCharacter(model)
     if player then
+        if _G.NoSelfAim and player == LocalPlayer then return end
         TrackedModels[model] = {Category = "Player", Player = player}
         HookHumanoidForDeath(model, humanoid)
         return
     end
-    if IsNPC(model) then
+
+    -- ✅ 使用原版 NPC 检测
+    if IsNPCModel(model) then
         TrackedModels[model] = {Category = "NPC"}
+        NPCRegistry[model] = true
         HookHumanoidForDeath(model, humanoid)
-        task.delay(0.1, function()
+        task.delay(0.05, function()
             if TrackedModels[model] and model.Parent then
                 createESPRef(model)
             end
@@ -552,31 +665,38 @@ local function ClassifyAndRegister(model)
     end
 end
 
--- 反注册
 local function UnregisterModel(model)
     TrackedModels[model] = nil
     DestroyESPForModel(model)
 end
 
--- 监听 workspace 增量
 task.spawn(function()
     workspace.DescendantAdded:Connect(function(obj)
         if obj:IsA("Humanoid") then
             local model = obj.Parent
             if model and model:IsA("Model") then
-                task.delay(0.2, function()
+                task.delay(0.15, function()
                     if model.Parent and not TrackedModels[model] then
                         ClassifyAndRegister(model)
                     end
                 end)
             end
         elseif obj:IsA("Model") then
-            task.delay(0.2, function()
+            task.delay(0.15, function()
                 if obj.Parent and not TrackedModels[obj] then
                     local hum = obj:FindFirstChildOfClass("Humanoid")
                     if hum then ClassifyAndRegister(obj) end
                 end
             end)
+        elseif obj:IsA("HumanoidRootPart") then
+            local model = obj.Parent
+            if model and model:IsA("Model") and not TrackedModels[model] then
+                task.delay(0.1, function()
+                    if model.Parent and not TrackedModels[model] then
+                        ClassifyAndRegister(model)
+                    end
+                end)
+            end
         end
     end)
 
@@ -586,6 +706,9 @@ task.spawn(function()
             if model and TrackedModels[model] then UnregisterModel(model) end
         elseif obj:IsA("Model") then
             if TrackedModels[obj] then UnregisterModel(obj) end
+        elseif obj:IsA("HumanoidRootPart") then
+            local model = obj.Parent
+            if model and TrackedModels[model] then UnregisterModel(model) end
         end
     end)
 end)
@@ -596,19 +719,28 @@ task.spawn(function()
     for _, obj in pairs(workspace:GetDescendants()) do
         if obj:IsA("Humanoid") then
             local model = obj.Parent
-            if model and model:IsA("Model") then ClassifyAndRegister(model) end
+            if model and model:IsA("Model") then
+                if not (_G.NoSelfAim and IsLocalCharacter(model)) then
+                    ClassifyAndRegister(model)
+                end
+            end
         end
         count = count + 1
         if count % 400 == 0 then task.wait() end
     end
 end)
 
--- ✅ v4.7: 缓存刷新（主动清理死亡）
 local function RefreshCaches()
     local newNPC = {}
     local newPlayer = {}
 
     for model, data in pairs(TrackedModels) do
+        if _G.NoSelfAim and IsLocalCharacter(model) then
+            TrackedModels[model] = nil
+            DestroyESPForModel(model)
+            continue
+        end
+
         if not model.Parent then
             TrackedModels[model] = nil
             DestroyESPForModel(model)
@@ -618,14 +750,13 @@ local function RefreshCaches()
         local humanoid = model:FindFirstChildOfClass("Humanoid")
         local hrp = model:FindFirstChild("HumanoidRootPart")
 
-        -- ✅ 严格存活检查
         local isAlive = humanoid and hrp and humanoid.Health >= _G.NPCMinHealth
             and humanoid:GetState() ~= Enum.HumanoidStateType.Dead
             and not IsDead(model)
 
         if not isAlive then
             TrackedModels[model] = nil
-            -- ✅ 主动清理死亡对象
+            NPCRegistry[model] = nil
             if _G.ESP_RemoveDeadObjects then
                 DestroyESPForModel(model)
             else
@@ -635,8 +766,21 @@ local function RefreshCaches()
         end
 
         if data.Category == "Player" then
+            if _G.NoSelfAim and data.Player == LocalPlayer then
+                TrackedModels[model] = nil
+                DestroyESPForModel(model)
+                continue
+            end
             newPlayer[model] = {Model = model, HRP = hrp, Humanoid = humanoid, Player = data.Player, IsNPC = false}
         elseif data.Category == "NPC" then
+            -- ✅ 用原版检测二次校验
+            if not IsNPCModel(model) then
+                TrackedModels[model] = nil
+                NPCRegistry[model] = nil
+                DestroyESPForModel(model)
+                continue
+            end
+            NPCRegistry[model] = true
             newNPC[model] = {Model = model, HRP = hrp, Humanoid = humanoid, IsNPC = true}
         end
     end
@@ -648,7 +792,7 @@ local function RefreshCaches()
         local nc, pc = 0, 0
         for _ in pairs(NPCCache) do nc = nc + 1 end
         for _ in pairs(PlayerCache) do pc = pc + 1 end
-        print(string.format("[Cache v4.7] NPCs: %d | Players: %d", nc, pc))
+        print(string.format("[Cache v5.0] NPCs: %d | Players: %d", nc, pc))
     end
 end
 
@@ -658,6 +802,8 @@ end
 
 local function ValidateCurrentTarget()
     if not CurrentTarget or not TargetPart then return false end
+    if _G.NoSelfAim and IsLocalCharacter(CurrentTarget) then return false end
+
     local humanoid = CurrentTarget:FindFirstChildOfClass("Humanoid")
     local hrp = CurrentTarget:FindFirstChild("HumanoidRootPart")
     if not humanoid or not hrp then return false end
@@ -682,8 +828,11 @@ local function GetTarget()
     if not LocalPlayer.Character then
         TargetInRange = false; TargetPart = nil; return nil
     end
+
     if _G.StickyAim and CurrentTarget then
-        if ValidateCurrentTarget() then
+        if _G.NoSelfAim and IsLocalCharacter(CurrentTarget) then
+            CurrentTarget = nil; TargetPart = nil
+        elseif ValidateCurrentTarget() then
             TargetInRange = true
             return CurrentTarget
         else
@@ -710,7 +859,10 @@ local function GetTarget()
         if not hrp or not humanoid then return end
         if humanoid.Health <= 0 then return end
 
+        if _G.NoSelfAim and IsLocalCharacter(data.Model) then return end
+
         if isPlayer then
+            if _G.NoSelfAim and data.Player == LocalPlayer then return end
             if not IsEnemyPlayer(data.Player) then return end
         else
             if not IsEnemyNPC(data.Model) then return end
@@ -766,6 +918,11 @@ local function GetTarget()
         for _, data in pairs(PlayerCache) do ProcessTarget(data, true) end
     end
 
+    if _G.NoSelfAim and closestTarget and IsLocalCharacter(closestTarget) then
+        closestTarget = nil
+        closestPart = nil
+    end
+
     TargetPart = closestPart
     return closestTarget
 end
@@ -791,6 +948,9 @@ end
 
 local function UpdateTargetInfo()
     if not _G.ShowTarget or not TargetInfo or not _G.SilentAim then
+        TargetInfo.Visible = false; TargetInfo.Text = ""; return
+    end
+    if _G.NoSelfAim and CurrentTarget and IsLocalCharacter(CurrentTarget) then
         TargetInfo.Visible = false; TargetInfo.Text = ""; return
     end
     if CurrentTarget and TargetPart then
@@ -876,7 +1036,7 @@ local function getInventoryItems(model)
         if v:IsA("Tool") then table.insert(items, v.Name .. " (Eq)") end
     end
     if plr and plr:FindFirstChild("Backpack") then
-        for _, v in ipairs(plr.Backpack:GetChildren()) do
+        for _, v in plr.Backpack:GetChildren() do
             if v:IsA("Tool") then table.insert(items, v.Name) end
         end
     end
@@ -904,6 +1064,7 @@ end
 
 local function createESP(model)
     if ESP_Objects[model] then return end
+    if _G.NoSelfAim and IsLocalCharacter(model) then return end
     local parts = {}
     parts.Box = newDrawing("Square"); parts.Box.Thickness = 1; parts.Box.Filled = false
     parts.Line = newDrawing("Line"); parts.Line.Thickness = 1
@@ -917,7 +1078,6 @@ local function createESP(model)
     parts.InventoryText = newDrawing("Text"); parts.InventoryText.Center = true; parts.InventoryText.Outline = true; parts.InventoryText.Font = 2; parts.InventoryText.Size = ESP_Config.InventoryTextSize
     ESP_Objects[model] = parts
 
-    -- ✅ v4.7: 挂载 Humanoid 死亡监听
     local hum = model:FindFirstChildOfClass("Humanoid")
     if hum then HookHumanoidForDeath(model, hum) end
 end
@@ -939,152 +1099,155 @@ local function updateESP()
     local camCenterX = camVpX / 2
 
     for model, parts in pairs(ESP_Objects) do
-        local hum, root = getCharacterHumanoid(model)
-
-        -- ✅ v4.7: 严格存活判定
-        local shouldShow = true
-        if not hum or not root then
-            shouldShow = false
-        elseif hum.Health <= 0 then
-            shouldShow = false
-        elseif hum:GetState() == Enum.HumanoidStateType.Dead then
-            shouldShow = false
-        elseif _G.ESP_IgnoreDead and ESP_Config.DeadCheck and IsDead(model) then
-            shouldShow = false
-        end
-
-        if not shouldShow then
+        if _G.NoSelfAim and IsLocalCharacter(model) then
             setDrawingVisibility(parts, false)
         else
-            local isPlayer = getPlayerFromCharacterESP(model) ~= nil
-            local show = true
-
-            if isPlayer and not ESP_Config.ShowPlayers then show = false end
-            if not isPlayer and not ESP_Config.ShowNPCs then show = false end
-
-            local distance = 0
-            if show then
-                distance = (root.Position - cameraPos).Magnitude
-                if distance > ESP_Config.MaxDistance then show = false end
+            local hum, root = getCharacterHumanoid(model)
+            local shouldShow = true
+            if not hum or not root then
+                shouldShow = false
+            elseif hum.Health <= 0 then
+                shouldShow = false
+            elseif hum:GetState() == Enum.HumanoidStateType.Dead then
+                shouldShow = false
+            elseif _G.ESP_IgnoreDead and ESP_Config.DeadCheck and IsDead(model) then
+                shouldShow = false
             end
 
-            if show and ESP_Config.TeamCheck and isAlly(model) then show = false end
-
-            if not show then
+            if not shouldShow then
                 setDrawingVisibility(parts, false)
             else
-                local rootPos, onScreen, depth = worldToViewport(root.Position)
-                if onScreen and depth > 0 then
-                    local color = ESP_Config.EnemyColor
-                    if isAlly(model) then color = ESP_Config.AllyColor
-                    elseif ESP_Config.UseTeamColor then
-                        local tc = getTeamColor(model)
-                        if tc then color = tc end
-                    end
-                    local size = model:GetExtentsSize()
+                local isPlayer = getPlayerFromCharacterESP(model) ~= nil
+                local show = true
 
-                    if ESP_Config.ShowBox then
-                        local top = root.Position + Vector3.new(0, size.Y / 2, 0)
-                        local bottom = root.Position - Vector3.new(0, size.Y / 2, 0)
-                        local topV2, on1 = worldToViewport(top)
-                        local bottomV2, on2 = worldToViewport(bottom)
-                        if on1 and on2 then
-                            local height = math.abs(topV2.Y - bottomV2.Y)
-                            local width = height / 2
-                            parts.Box.Size = Vector2.new(width, height)
-                            parts.Box.Position = Vector2.new(rootPos.X - width / 2, topV2.Y)
-                            parts.Box.Color = color
-                            parts.Box.Visible = true
-                        else parts.Box.Visible = false end
-                    else parts.Box.Visible = false end
+                if isPlayer and not ESP_Config.ShowPlayers then show = false end
+                if not isPlayer and not ESP_Config.ShowNPCs then show = false end
 
-                    if ESP_Config.ShowLine then
-                        parts.Line.From = Vector2.new(camCenterX, camVpY)
-                        parts.Line.To = rootPos
-                        parts.Line.Color = ESP_Config.LineColor
-                        parts.Line.Visible = true
-                    else parts.Line.Visible = false end
+                local distance = 0
+                if show then
+                    distance = (root.Position - cameraPos).Magnitude
+                    if distance > ESP_Config.MaxDistance then show = false end
+                end
 
-                    if ESP_Config.ShowStick then
-                        local head = model:FindFirstChild("Head") or root
-                        local headV2, hOn = worldToViewport(head.Position)
-                        local footV2, fOn = worldToViewport(root.Position - Vector3.new(0, size.Y / 2, 0))
-                        if hOn and fOn then
-                            parts.Stick.From = headV2; parts.Stick.To = footV2
-                            parts.Stick.Color = ESP_Config.StickColor; parts.Stick.Visible = true
-                        else parts.Stick.Visible = false end
-                    else parts.Stick.Visible = false end
+                if show and ESP_Config.TeamCheck and isAlly(model) then show = false end
 
-                    if ESP_Config.ShowName then
-                        parts.NameText.Position = rootPos - Vector2.new(0, 30)
-                        parts.NameText.Size = ESP_Config.NameTextSize
-                        parts.NameText.Color = color
-                        parts.NameText.Text = model.Name
-                        parts.NameText.Visible = true
-                    else parts.NameText.Visible = false end
-
-                    if ESP_Config.ShowDistance then
-                        parts.DistanceText.Position = rootPos - Vector2.new(0, 15)
-                        parts.DistanceText.Size = ESP_Config.DistanceTextSize
-                        parts.DistanceText.Color = Color3.fromRGB(255, 255, 255)
-                        parts.DistanceText.Text = string.format("[%.0f m]", distance)
-                        parts.DistanceText.Visible = true
-                    else parts.DistanceText.Visible = false end
-
-                    local barYFinal = rootPos.Y + 25
-                    local barHFinal = ESP_Config.HPBarHeight
-
-                    if ESP_Config.ShowHPBar then
-                        local hpPercent = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1)
-                        local barW, barH = ESP_Config.HPBarWidth, ESP_Config.HPBarHeight
-                        local barX, barY = rootPos.X - barW / 2, rootPos.Y + 25
-                        barYFinal = barY
-                        parts.HPBarBack.Size = Vector2.new(barW, barH)
-                        parts.HPBarBack.Position = Vector2.new(barX, barY); parts.HPBarBack.Visible = true
-                        parts.HPBar.Size = Vector2.new(barW * hpPercent, barH)
-                        parts.HPBar.Position = Vector2.new(barX, barY)
-                        parts.HPBar.Color = Color3.fromRGB(255 * (1 - hpPercent), 255 * hpPercent, 0)
-                        parts.HPBar.Visible = true
-                        parts.HPText.Position = Vector2.new(rootPos.X, barY + barH + 8)
-                        parts.HPText.Color = Color3.fromRGB(255, 255, 255)
-                        parts.HPText.Text = string.format("%.0f / %.0f", hum.Health, hum.MaxHealth)
-                        parts.HPText.Visible = true
-                    else
-                        parts.HPBarBack.Visible = false; parts.HPBar.Visible = false; parts.HPText.Visible = false
-                    end
-
-                    if ESP_Config.ShowEquippedItem then
-                        local itemName = getEquippedToolName(model)
-                        if itemName then
-                            parts.ItemText.Position = rootPos - Vector2.new(0, 45)
-                            parts.ItemText.Color = Color3.fromRGB(120, 255, 120)
-                            parts.ItemText.Text = "[" .. itemName .. "]"
-                            parts.ItemText.Visible = true
-                        else parts.ItemText.Visible = false end
-                    else parts.ItemText.Visible = false end
-
-                    if ESP_Config.ShowInventory then
-                        local invText = getInventoryItems(model)
-                        if invText then
-                            parts.InventoryText.Position = Vector2.new(rootPos.X, barYFinal + barHFinal + 25)
-                            parts.InventoryText.Size = ESP_Config.InventoryTextSize
-                            parts.InventoryText.Color = Color3.fromRGB(200, 200, 255)
-                            parts.InventoryText.Text = invText
-                            parts.InventoryText.Visible = true
-                        else parts.InventoryText.Visible = false end
-                    else parts.InventoryText.Visible = false end
-                else
+                if not show then
                     setDrawingVisibility(parts, false)
+                else
+                    local rootPos, onScreen, depth = worldToViewport(root.Position)
+                    if onScreen and depth > 0 then
+                        local color = ESP_Config.EnemyColor
+                        if isAlly(model) then color = ESP_Config.AllyColor
+                        elseif ESP_Config.UseTeamColor then
+                            local tc = getTeamColor(model)
+                            if tc then color = tc end
+                        end
+                        local size = model:GetExtentsSize()
+
+                        if ESP_Config.ShowBox then
+                            local top = root.Position + Vector3.new(0, size.Y / 2, 0)
+                            local bottom = root.Position - Vector3.new(0, size.Y / 2, 0)
+                            local topV2, on1 = worldToViewport(top)
+                            local bottomV2, on2 = worldToViewport(bottom)
+                            if on1 and on2 then
+                                local height = math.abs(topV2.Y - bottomV2.Y)
+                                local width = height / 2
+                                parts.Box.Size = Vector2.new(width, height)
+                                parts.Box.Position = Vector2.new(rootPos.X - width / 2, topV2.Y)
+                                parts.Box.Color = color
+                                parts.Box.Visible = true
+                            else parts.Box.Visible = false end
+                        else parts.Box.Visible = false end
+
+                        if ESP_Config.ShowLine then
+                            parts.Line.From = Vector2.new(camCenterX, camVpY)
+                            parts.Line.To = rootPos
+                            parts.Line.Color = ESP_Config.LineColor
+                            parts.Line.Visible = true
+                        else parts.Line.Visible = false end
+
+                        if ESP_Config.ShowStick then
+                            local head = model:FindFirstChild("Head") or root
+                            local headV2, hOn = worldToViewport(head.Position)
+                            local footV2, fOn = worldToViewport(root.Position - Vector3.new(0, size.Y / 2, 0))
+                            if hOn and fOn then
+                                parts.Stick.From = headV2; parts.Stick.To = footV2
+                                parts.Stick.Color = ESP_Config.StickColor; parts.Stick.Visible = true
+                            else parts.Stick.Visible = false end
+                        else parts.Stick.Visible = false end
+
+                        if ESP_Config.ShowName then
+                            parts.NameText.Position = rootPos - Vector2.new(0, 30)
+                            parts.NameText.Size = ESP_Config.NameTextSize
+                            parts.NameText.Color = color
+                            parts.NameText.Text = model.Name
+                            parts.NameText.Visible = true
+                        else parts.NameText.Visible = false end
+
+                        if ESP_Config.ShowDistance then
+                            parts.DistanceText.Position = rootPos - Vector2.new(0, 15)
+                            parts.DistanceText.Size = ESP_Config.DistanceTextSize
+                            parts.DistanceText.Color = Color3.fromRGB(255, 255, 255)
+                            parts.DistanceText.Text = string.format("[%.0f m]", distance)
+                            parts.DistanceText.Visible = true
+                        else parts.DistanceText.Visible = false end
+
+                        local barYFinal = rootPos.Y + 25
+                        local barHFinal = ESP_Config.HPBarHeight
+
+                        if ESP_Config.ShowHPBar then
+                            local hpPercent = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1)
+                            local barW, barH = ESP_Config.HPBarWidth, ESP_Config.HPBarHeight
+                            local barX, barY = rootPos.X - barW / 2, rootPos.Y + 25
+                            barYFinal = barY
+                            parts.HPBarBack.Size = Vector2.new(barW, barH)
+                            parts.HPBarBack.Position = Vector2.new(barX, barY); parts.HPBarBack.Visible = true
+                            parts.HPBar.Size = Vector2.new(barW * hpPercent, barH)
+                            parts.HPBar.Position = Vector2.new(barX, barY)
+                            parts.HPBar.Color = Color3.fromRGB(255 * (1 - hpPercent), 255 * hpPercent, 0)
+                            parts.HPBar.Visible = true
+                            parts.HPText.Position = Vector2.new(rootPos.X, barY + barH + 8)
+                            parts.HPText.Color = Color3.fromRGB(255, 255, 255)
+                            parts.HPText.Text = string.format("%.0f / %.0f", hum.Health, hum.MaxHealth)
+                            parts.HPText.Visible = true
+                        else
+                            parts.HPBarBack.Visible = false; parts.HPBar.Visible = false; parts.HPText.Visible = false
+                        end
+
+                        if ESP_Config.ShowEquippedItem then
+                            local itemName = getEquippedToolName(model)
+                            if itemName then
+                                parts.ItemText.Position = rootPos - Vector2.new(0, 45)
+                                parts.ItemText.Color = Color3.fromRGB(120, 255, 120)
+                                parts.ItemText.Text = "[" .. itemName .. "]"
+                                parts.ItemText.Visible = true
+                            else parts.ItemText.Visible = false end
+                        else parts.ItemText.Visible = false end
+
+                        if ESP_Config.ShowInventory then
+                            local invText = getInventoryItems(model)
+                            if invText then
+                                parts.InventoryText.Position = Vector2.new(rootPos.X, barYFinal + barHFinal + 25)
+                                parts.InventoryText.Size = ESP_Config.InventoryTextSize
+                                parts.InventoryText.Color = Color3.fromRGB(200, 200, 255)
+                                parts.InventoryText.Text = invText
+                                parts.InventoryText.Visible = true
+                            else parts.InventoryText.Visible = false end
+                        else parts.InventoryText.Visible = false end
+                    else
+                        setDrawingVisibility(parts, false)
+                    end
                 end
             end
         end
     end
 end
 
--- 玩家角色事件挂载
 local function HookPlayerCharacter(player)
+    if _G.NoSelfAim and player == LocalPlayer then return end
     player.CharacterAdded:Connect(function(char)
         task.wait(0.3)
+        if _G.NoSelfAim and IsLocalCharacter(char) then return end
         local hum, root = getCharacterHumanoid(char)
         if hum and root then
             createESP(char)
@@ -1095,6 +1258,7 @@ local function HookPlayerCharacter(player)
         end
     end)
     if player.Character then
+        if _G.NoSelfAim and IsLocalCharacter(player.Character) then return end
         local hum, root = getCharacterHumanoid(player.Character)
         if hum and root then
             createESP(player.Character)
@@ -1130,7 +1294,13 @@ end
 
 if not oldNamecall then
     oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
-        if not _G.SilentAim or not TargetPart or not CurrentTarget then return oldNamecall(self, ...) end
+        if not _G.SilentAim or not TargetPart or not CurrentTarget then
+            return oldNamecall(self, ...)
+        end
+        if _G.NoSelfAim and (IsLocalCharacter(CurrentTarget) or CurrentTarget == LocalPlayer.Character) then
+            return oldNamecall(self, ...)
+        end
+
         local method = getnamecallmethod()
         local args = {...}
         if (method == "FireServer" or method == "InvokeServer") and typeof(self) == "Instance" then
@@ -1185,6 +1355,9 @@ end
 if not oldIndex then
     oldIndex = hookmetamethod(game, "__index", function(self, key)
         if self == Mouse and _G.SilentAim and TargetPart then
+            if _G.NoSelfAim and CurrentTarget and IsLocalCharacter(CurrentTarget) then
+                return oldIndex(self, key)
+            end
             local keyLower = string.lower(key)
             if keyLower == "hit" then
                 if not ShouldHit() then return oldIndex(self, key) end
@@ -1198,26 +1371,26 @@ if not oldIndex then
     end)
 end
 
--- Silent Aim 目标更新循环
 task.spawn(function()
     while true do
         task.wait(_G.UpdateRate)
         if _G.SilentAim then
             CurrentTarget = GetTarget()
+            if _G.NoSelfAim and CurrentTarget and IsLocalCharacter(CurrentTarget) then
+                CurrentTarget = nil; TargetPart = nil; TargetInRange = false
+            end
         else
             CurrentTarget = nil; TargetInRange = false; TargetPart = nil
         end
     end
 end)
 
--- 缓存刷新循环
 task.spawn(function()
     while task.wait(1) do
         pcall(RefreshCaches)
     end
 end)
 
--- 统一渲染循环
 RunService.RenderStepped:Connect(function()
     FrameCounter = FrameCounter + 1
 
@@ -1258,7 +1431,7 @@ local ThemeManager = loadstring(game:HttpGet(repo .. "addons/ThemeManager.lua"))
 local SaveManager = loadstring(game:HttpGet(repo .. "addons/SaveManager.lua"))()
 
 local Window = Library:CreateWindow({
-    Title = '🎯 Universal Pro v4.7 (ESP Ignore Dead + MEGA OPTIMIZED)',
+    Title = '🎯 Universal Pro v5.0 (Original NPC Detection + No Self-Aim)',
     Center = true,
     AutoShow = true,
     TabPadding = 8,
@@ -1293,6 +1466,56 @@ AimLogicBox:AddDropdown('PartDrop', { Values = {'Head', 'Torso', 'Both', 'Random
 AimLogicBox:AddToggle('WallCheck', { Text = 'Wall Check (Visibilidade)', Default = true, Callback = function(Value) _G.VisibleCheck = Value end })
 AimLogicBox:AddToggle('DeadCheckAim', { Text = 'Dead Body Check (Ignorar Mortos)', Default = true, Callback = function(Value) _G.DeadCheck = Value end })
 
+local AimSelfBox = Tabs.Aim:AddLeftGroupbox('🚫 自瞄保护')
+AimSelfBox:AddToggle('NoSelfAimToggle', {
+    Text = '🚫 永不自瞄 (No Self-Aim)',
+    Default = true,
+    Callback = function(Value)
+        _G.NoSelfAim = Value
+        if Value then
+            CurrentTarget = nil; TargetPart = nil; TargetInRange = false
+            Library:Notify('🚫 自瞄保护已启用', 2)
+        else
+            Library:Notify('⚠️ 自瞄保护已关闭', 2)
+        end
+    end
+})
+
+-- ✅ v5.0: 原版 NPC 检测面板
+local AimNPCBox = Tabs.Aim:AddLeftGroupbox('🎯 NPC 检测 (v5.0 原版逻辑)')
+AimNPCBox:AddToggle('UseOriginalNPCDetection', {
+    Text = '🎯 使用原版 ESP 完整 NPC 检测（推荐）',
+    Default = true,
+    Tooltip = 'NPCTags + 文件夹 + CollectionService + 脚本扫描 + Value 指示器 + 兜底判定',
+    Callback = function(Value)
+        _G.UseOriginalNPCDetection = Value
+        Library:Notify(Value and '🎯 原版 NPC 检测已启用' or '⚠️ 已切回极简判定', 2)
+    end
+})
+AimNPCBox:AddToggle('AggressiveNPC', {
+    Text = '⚡ 激进模式（任何 Humanoid 都视为 NPC）',
+    Default = false,
+    Tooltip = '跳过所有名字/文件夹检查，只要有人形就算 NPC',
+    Callback = function(Value)
+        _G.AggressiveNPCDetection = Value
+        Library:Notify(Value and '⚡ 激进模式已启用' or '✅ 已切回标准模式', 2)
+    end
+})
+AimNPCBox:AddToggle('NPCRequireHRP', {
+    Text = '必须有 HumanoidRootPart',
+    Default = true,
+    Tooltip = 'Silent Aim 瞄准需要 HRP（关闭可能导致瞄准失败）',
+    Callback = function(Value) _G.NPCRequireHRP = Value end
+})
+AimNPCBox:AddToggle('NPCRequireHead', {
+    Text = '必须有 Head',
+    Default = false,
+    Tooltip = 'R6/R15 兼容：关闭可支持无头 NPC',
+    Callback = function(Value) _G.NPCRequireHead = Value end
+})
+AimNPCBox:AddSlider('NPCMinHP', { Text = '最小存活 HP', Default = 1, Min = 1, Max = 100, Rounding = 0, Callback = function(Value) _G.NPCMinHealth = Value end })
+AimNPCBox:AddToggle('DebugNPCs', { Text = 'Debug NPCs (打印实时数量 + 判定原因)', Default = false, Callback = function(Value) _G.DebugNPCs = Value end })
+
 local AimDistanceBox = Tabs.Aim:AddLeftGroupbox('Limite de Distância')
 AimDistanceBox:AddToggle('EnableDistanceLimit', { Text = 'Ativar Limite de Distância', Default = true, Callback = function(Value) _G.EnableDistanceLimit = Value end })
 AimDistanceBox:AddSlider('MaxAimDistance', { Text = 'Distância Máxima (studs)', Default = 500, Min = 50, Max = 2000, Rounding = 0, Callback = function(Value) _G.MaxAimDistance = Value end })
@@ -1301,11 +1524,6 @@ AimDistanceBox:AddLabel('📌 推荐 300-800 studs')
 local AimFriendBox = Tabs.Aim:AddLeftGroupbox('Proteção de Amigos')
 AimFriendBox:AddToggle('FriendCheckToggle', { Text = 'Ignorar Amigos (Friend Check)', Default = true, Callback = function(Value) _G.FriendCheck = Value; FriendCache = {}; FriendCacheTime = 0 end })
 AimFriendBox:AddLabel('✅ 内置 30 秒缓存')
-
-local AimNPCBox = Tabs.Aim:AddLeftGroupbox('Configurações de NPC')
-AimNPCBox:AddToggle('AgressiveNPC', { Text = 'Modo NPC Agressivo', Default = false, Callback = function(Value) _G.AggressiveNPCDetection = Value end })
-AimNPCBox:AddToggle('DebugNPCs', { Text = 'Debug NPCs (打印存活数量)', Default = false, Callback = function(Value) _G.DebugNPCs = Value end })
-AimNPCBox:AddSlider('NPCMinHP', { Text = '最小存活 HP', Default = 1, Min = 1, Max = 100, Rounding = 0, Callback = function(Value) _G.NPCMinHealth = Value end })
 
 local AimBulletTPBox = Tabs.Aim:AddRightGroupbox('Bullet Teleport')
 AimBulletTPBox:AddToggle('ToggleBulletTP', { Text = 'Ativar Bullet Teleport', Default = false, Callback = function(Value)
@@ -1375,7 +1593,6 @@ end)
 local PLRefreshBox = Tabs.PlayerList:AddLeftGroupbox('🔄 名单设置')
 PLRefreshBox:AddLabel('📌 黑名单：只瞄准名单内玩家')
 PLRefreshBox:AddLabel('📌 白名单：忽略名单内玩家')
-PLRefreshBox:AddLabel('⚠️ 名单仅对玩家生效')
 PLRefreshBox:AddSlider('PLRefreshRate', { Text = '自动刷新间隔（秒）', Default = 2, Min = 1, Max = 10, Rounding = 0, Callback = function(Value) _G.PlayerListRefreshRate = Value end })
 
 local function BuildPlayerListValues()
@@ -1429,33 +1646,16 @@ ESPMainBox:AddToggle('ESPNPCs', { Text = 'Mostrar NPCs', Default = true, Callbac
 ESPMainBox:AddToggle('ESPTeamCheck', { Text = 'Team Check', Default = true, Callback = function(Value) ESP_Config.TeamCheck = Value end })
 ESPMainBox:AddToggle('ESPTeamColor', { Text = 'Usar Cor do Time', Default = true, Callback = function(Value) ESP_Config.UseTeamColor = Value end })
 
--- ✅ v4.7: ESP 死亡相关新面板
-local ESPDeadBox = Tabs.ESP:AddLeftGroupbox('💀 ESP 忽略死亡（v4.7 强化）')
-ESPDeadBox:AddToggle('ESPDeadCheck', {
-    Text = '忽略死亡（主开关）',
-    Default = true,
-    Tooltip = 'ESP 不显示任何已死亡的角色（玩家或 NPC）',
-    Callback = function(Value) ESP_Config.DeadCheck = Value; _G.ESP_IgnoreDead = Value end
-})
-ESPDeadBox:AddToggle('ESPImmediateHide', {
-    Text = '死亡瞬间立即隐藏（事件驱动）',
-    Default = true,
-    Tooltip = '通过 Humanoid.Died / HealthChanged 事件立即隐藏',
-    Callback = function(Value) _G.ESP_ImmediateHideOnDeath = Value end
-})
-ESPDeadBox:AddToggle('ESPRemoveDeadObjects', {
-    Text = '主动清理死亡 ESP 对象（防内存泄漏）',
-    Default = true,
-    Tooltip = '定期彻底销毁死亡角色的所有 ESP 绘制对象',
-    Callback = function(Value) _G.ESP_RemoveDeadObjects = Value end
-})
+local ESPDeadBox = Tabs.ESP:AddLeftGroupbox('💀 ESP 忽略死亡')
+ESPDeadBox:AddToggle('ESPDeadCheck', { Text = '忽略死亡（主开关）', Default = true, Callback = function(Value) ESP_Config.DeadCheck = Value; _G.ESP_IgnoreDead = Value end })
+ESPDeadBox:AddToggle('ESPImmediateHide', { Text = '死亡瞬间立即隐藏', Default = true, Callback = function(Value) _G.ESP_ImmediateHideOnDeath = Value end })
+ESPDeadBox:AddToggle('ESPRemoveDeadObjects', { Text = '主动清理死亡 ESP 对象', Default = true, Callback = function(Value) _G.ESP_RemoveDeadObjects = Value end })
 ESPDeadBox:AddButton('🧹 立即清理所有死亡 ESP', function()
     local count = 0
     for model, _ in pairs(ESP_Objects) do
         local hum = model:FindFirstChildOfClass("Humanoid")
         if not model.Parent or not hum or hum.Health <= 0 or IsDead(model) then
-            DestroyESPForModel(model)
-            TrackedModels[model] = nil
+            DestroyESPForModel(model); TrackedModels[model] = nil
             count = count + 1
         end
     end
@@ -1494,7 +1694,9 @@ local PerfStatusBox = Tabs.Perf:AddRightGroupbox('📊 状态')
 PerfStatusBox:AddButton('🧹 清理未使用 ESP 对象', function()
     local count = 0
     for model, _ in pairs(ESP_Objects) do
-        if not model.Parent then DestroyESPForModel(model); count = count + 1 end
+        if not model.Parent or (_G.NoSelfAim and IsLocalCharacter(model)) then
+            DestroyESPForModel(model); count = count + 1
+        end
     end
     Library:Notify('🧹 已清理 ' .. count .. ' 个无效对象', 2)
 end)
@@ -1529,7 +1731,7 @@ end
 --// [ TAB 6: SAVE 📁 ] //--
 local SaveTab = Tabs.Save
 
-Library:SetWatermark('Universal Pro v4.7')
+Library:SetWatermark('Universal Pro v5.0')
 ThemeManager:SetLibrary(Library)
 SaveManager:SetLibrary(Library)
 SaveManager:IgnoreThemeSettings()
@@ -1547,22 +1749,29 @@ SaveTab:AddLabel('')
 SaveTab:AddLabel('🎨 Temas')
 SaveTab:AddButton('🔄 Recarregar Temas', function() ThemeManager:Load(); Library:Notify('🎨 Temas recarregados!', 2) end)
 
-Library:Notify('✅ UNIVERSAL PRO v4.7 CARREGADO! (ESP Ignore Dead)', 5)
+Library:Notify('✅ UNIVERSAL PRO v5.0 CARREGADO! (Original NPC Detection)', 5)
 
 print([[
 ╔═══════════════════════════════════════════════════════════════════════╗
-║         UNIVERSAL PRO v4.7 - ESP IGNORE DEAD (强化版)                 ║
+║      UNIVERSAL PRO v5.0 - ORIGINAL NPC DETECTION                      ║
 ╠═══════════════════════════════════════════════════════════════════════╣
-║  💀 ESP 忽略死亡系统：                                                 ║
-║   ✅ Humanoid.Died 事件监听 → 死亡瞬间立即隐藏                        ║
-║   ✅ Humanoid.HealthChanged 监听 → Health<=0 立即隐藏                 ║
-║   ✅ updateESP 每帧二次校验（Health + State + K.O）                   ║
-║   ✅ RefreshCaches 主动清理死亡模型                                    ║
-║   ✅ 模型销毁自动销毁 ESP 对象（防内存泄漏）                          ║
+║  🎯 原版 ESP 完整 NPC 检测（9 层判定逻辑）：                            ║
+║   1. 激进模式：任何 Humanoid = NPC                                     ║
+║   2. 名字匹配 100+ NPC Tags (NPC/Enemy/Bot/Mob/Zombie...)             ║
+║   3. 常见 NPC 文件夹 (NPCs/Enemies/Bots/Mobs/Monsters...)             ║
+║   4. Value 指示器 (NPC/IsNPC/IsEnemy/Hostile/Bot/Mob)                 ║
+║   5. 内部 AI 脚本 (ai/behavior/path/attack/patrol/combat)             ║
+║   6. CollectionService Tags (CollectionService:GetTags)               ║
+║   7. NPC 能力对象 (Attack/Damage/Aggro/Patrol/Spawn/Respawn/AI)      ║
+║   8. 名字模式匹配 (^npc_ / ^enemy_ / ^bot_ / _npc$ ...)              ║
+║   9. 兜底判定：Humanoid + HRP 且不是玩家                              ║
 ╠═══════════════════════════════════════════════════════════════════════╣
-║  🚀 性能优化：                                                        ║
-║   ✅ 增量 NPC 追踪 / 统一渲染 / ESP 帧节流 / 可见性节流               ║
+║  ✅ Silent Aim 与 ESP 共用同一个 NPCRegistry                          ║
+║  ✅ 保证「ESP 能看到的一定能被 Silent Aim 瞄准」                      ║
 ╠═══════════════════════════════════════════════════════════════════════╣
-║  💡 打开 "ESP Pro" → "💀 ESP 忽略死亡" 面板调整参数                    ║
+║  🚫 永不自瞄 (9 层保险)                                                ║
+║  💀 ESP 忽略死亡 (5 重保障)                                            ║
+║  ⚡ 增量 NPC 追踪 / 统一渲染 / FPS 节流                                ║
+║  🎯 PlayerList / Distance / Friend / Adonis / Bullet TP               ║
 ╚═══════════════════════════════════════════════════════════════════════╝
 ]])
